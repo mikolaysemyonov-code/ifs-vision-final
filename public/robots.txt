@@ -1,0 +1,4 @@
+User-agent: *
+Disallow: /studio-admin/
+Disallow: /api/
+Sitemap: https://ifs-vision.vercel.app/sitemap.xml
