@@ -45,3 +45,7 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .env*.local
+AS_BUILT_REPORT.md
+PRE_DEPLOYMENT_AUDIT.md
+PROJECT_DNA.md
+TECHNICAL_REPORT.md
