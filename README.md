@@ -83,19 +83,19 @@ Motion · Recharts · Zustand · Vercel.
 ## 🎥 Visual Overview
 
 ### 1. Terminal Interface & Strategy Selection
-![Strategy Selection](screenshots/01-strategy-selection.png)
+![Strategy Selection](.github/assets/screenshots/01-strategy-selection.png)
 *Интерфейс выбора базовой стратегии и параметров ипотечного плеча.*
 
 ### 2. Zero-Point Sync & Inflation Inflection
-![Inflection Point](screenshots/02-inflection-point.png)
+![Inflection Point](.github/assets/screenshots/02-inflection-point.png)
 *Динамика чистого капитала. Визуализация точки «Инфляционного перегиба» на 8-м году.*
 
 ### 3. AI-Insights & Institutional Analytics
-![AI Analytics](screenshots/03-ai-insights-report.png)
+![AI Analytics](.github/assets/screenshots/03-ai-insights-report.png)
 *Глубокая декомпозиция: ROI, пики доходности вклада и экспертные вердикты системы.*
 
 ### 4. Investor Deck & B2B Report Generation
-![Investor Deck](screenshots/04-investor-deck-report.png)
+![Investor Deck](.github/assets/screenshots/04-investor-deck-report.png)
 *Генерация премиальных JPG-отчетов с White Label поддержкой и аналитикой.*
 
 ---
