@@ -3,27 +3,6 @@
 **Author:** [mikolaysemyonov-code](https://github.com/
 mikolaysemyonov-code) · Digital Twin Studio  
 **v3.9.5** · [Live Demo](https://ifs-vision.vercel.app)
-## Visual Overview
-<p align="center">
-  <img src=".github/assets/screenshots/hero.png" alt="Terminal Hero 
-  Interface" width="900" />
-</p>
-<p align="center"><em>Terminal Hero Interface — главный экран с графиком</
-em></p>
-<p align="center">
-  <img src=".github/assets/screenshots/sync.png" alt="Zero-Point Sync 
-  Logic" width="900" />
-</p>
-<p align="center"><em>Zero-Point Sync — честное сравнение капитала из 
-единой точки входа</em></p>
-<p align="center">
-  <img src=".github/assets/screenshots/reports.png" alt="Mobile & Lead-Gen 
-  Reports" width="900" />
-</p>
-<p align="center"><em>Адаптивность и PDF-отчёты</em></p>
-
----
-
 ## The Philosophy: Digital Reincarnation
 IFS Vision противостоит **архитектурной энтропии** в личных финансах: 
 размытым сравнениям, неочевидным допущениям и «удобным» цифрам. Инструмент 
