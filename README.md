@@ -54,22 +54,6 @@ URL-параметры для экспорт-режима. |
 **Stack:** Next.js 15 · React 19 · TypeScript · Tailwind CSS · Framer 
 Motion · Recharts · Zustand · Vercel.
 
-1. Клонировать репозиторий и установить зависимости:
-   git clone https://github.com/your-org/ifs-vision.git
-   cd ifs-vision
-   ```
-2. Настроить окружение (все секреты — только из `process.env`):
-   ```bash
-   cp .env.example .env
-   ```
-   В `.env` задать: `NEXT_PUBLIC_SITE_URL`, `SCREENSHOT_API_KEY`, 
-   `ADMIN_PASSWORD`; при необходимости — `BOT_TOKEN`, `CHAT_ID`.
-3. Запуск в режиме разработки и продакшен-сборка:
-   ```bash
-   npm run dev
-   npm run build && npm start
-   ```
-
 **Industrial Grade Financial Engine. Part of the Digital Twin Studio ecosystem.**  
 *v3.9.5 Diamond Release · Developed by [mikolaysemyonov-code](https://github.com/mikolaysemyonov-code)*
 
@@ -121,20 +105,6 @@ Motion · Recharts · Zustand · Vercel.
 
 ---
 
-## 📦 Installation & Setup
+## License
 
-1. **Clone & Install:**
-   ```bash
-   git clone https://github.com/ifs-vision-final.git
-   cd ifs-vision-final
-   npm install
-
-
-*Используйте код с осторожностью.*
-
-**Run:**
-
-```bash
-npm run build
-npm run start
-```
+© 2026 Digital Twin Studio. All rights reserved. Commercial use, redistribution, or white-label integration requires a commercial license. Contact [@mikolaysemyonov-code](https://github.com/mikolaysemyonov-code) for inquiries.
