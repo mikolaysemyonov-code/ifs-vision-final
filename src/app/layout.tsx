@@ -19,17 +19,17 @@ const { brand } = config;
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
-  title: "IFS Vision — Real Estate Financial Simulator",
+  title: "IFS Vision — High-Precision Capital Efficiency Terminal",
   icons: {
     icon: brand.logoUrl || "/logo.png",
     apple: brand.logoUrl || "/logo.png",
   },
   description:
-    "Intelligent real estate financial simulator. Calculate mortgage, ROI and compare with deposit in real time. Ипотека, доходность, сравнение с вкладом.",
+    "High-precision capital efficiency terminal. Mortgage, ROI, deposit comparison, zero-point sync. Ипотека, доходность, честное сравнение с вкладом.",
   openGraph: {
-    title: "IFS Vision — Real Estate Financial Simulator",
+    title: "IFS Vision — High-Precision Capital Efficiency Terminal",
     description:
-      "Intelligent real estate financial simulator. Mortgage, ROI, deposit comparison in real time.",
+      "High-precision capital efficiency terminal. Mortgage, ROI, deposit comparison in real time.",
     url: siteUrl,
     siteName: brand.companyName,
     images: [
@@ -45,8 +45,8 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "IFS Vision — Real Estate Financial Simulator",
-    description: "Intelligent real estate financial simulator. Mortgage, ROI, deposit comparison.",
+    title: "IFS Vision — High-Precision Capital Efficiency Terminal",
+    description: "High-precision capital efficiency terminal. Mortgage, ROI, deposit comparison.",
     images: [`${siteUrl}/og-image.png`],
   },
 };

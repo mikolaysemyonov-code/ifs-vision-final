@@ -1,16 +1,27 @@
 /**
  * Chart & verdict calculation layer. Pure functions only.
- * Uses FinancialEngine (annuity, schedule) and constants.
+ * Все денежные расчёты в копейках; округление на каждом шаге. Выход в рублях для UI.
  */
 
 import { FinancialEngine } from "@/lib/engine";
 import type { ChartDataPoint } from "@/lib/engine";
+import {
+  rublesToKopeks,
+  kopeksToRubles,
+  roundKopeks,
+} from "@/lib/money";
 import {
   DEPOSIT_PHASE_MONTHS,
   TAX_DRAG_COEFFICIENT,
   RENT_INFLATION_RATE,
   TARGET_DEPOSIT_RATE_AFTER_PHASE,
   DEFAULT_APPRECIATION_PERCENT,
+  STAGNATION_DROP_PERCENT,
+  STAGNATION_MONTHS,
+  HYPERINFLATION_RENT_RATE,
+  INFLATION_RATE_FOR_RENT,
+  DEPOSIT_TAX_RATE,
+  DEPOSIT_INTEREST_EXEMPTION_PER_YEAR_RUB,
 } from "@/config/constants";
 
 export interface ChartRowWithDeposit {
@@ -26,6 +37,8 @@ export interface ChartRowWithDeposit {
   netEquityCompare?: number;
 }
 
+export type RiskScenario = "none" | "stagnation" | "hyperinflation";
+
 export interface ChartWithDepositInput {
   mergedChartData: Array<ChartDataPoint & { balanceCompare?: number }>;
   price: number;
@@ -37,44 +50,102 @@ export interface ChartWithDepositInput {
   rentalYieldPercent: number;
   compareStrategy: "investor" | "family" | "entry" | null;
   comparePreset: { price: number; downPercent: number; ratePercent: number; termYears: number } | null;
+  /** Сценарий риска: стагнация (падение цен), гиперинфляция (рост индексации аренды). */
+  riskScenario?: RiskScenario;
+  /** Zero-Point Sync: при сравнении двух объектов — общая точка входа капитала (рубли). Для Объекта Б передать price Объекта А. */
+  initialTotalCapitalOverride?: number;
 }
 
-/** Accumulated indexed rent by month (rent grows RENT_INFLATION_RATE per year). */
+/**
+ * Накопленная индексированная аренда за monthsCount месяцев (аренда растёт на rate в год).
+ * Результат в рублях; внутреннее округление через копейки.
+ * @param rentInflationRateOverride — при сценарии «гиперинфляция» задаёт повышенную индексацию (например HYPERINFLATION_RENT_RATE).
+ */
 export function accumulatedIndexedRent(
   rentMonthlyBase: number,
-  monthsCount: number
+  monthsCount: number,
+  rentInflationRateOverride?: number
 ): number {
   if (monthsCount <= 0) return 0;
+  const rate = rentInflationRateOverride ?? RENT_INFLATION_RATE;
   const fullYears = Math.floor(monthsCount / 12);
   const remMonths = monthsCount % 12;
-  return (
-    rentMonthlyBase *
-    (12 * (Math.pow(1 + RENT_INFLATION_RATE, fullYears) - 1) / RENT_INFLATION_RATE +
-      remMonths * Math.pow(1 + RENT_INFLATION_RATE, fullYears))
-  );
+  const rawRub =
+    rate === 0
+      ? rentMonthlyBase * monthsCount
+      : rentMonthlyBase *
+        (12 * (Math.pow(1 + rate, fullYears) - 1) / rate +
+          remMonths * Math.pow(1 + rate, fullYears));
+  return kopeksToRubles(roundKopeks(rublesToKopeks(rawRub)));
 }
 
-/** Deposit accumulation: phase 1 (full rate) then phase 2 (target rate × tax drag). */
+/** Опции для честного сравнения «Вклад»: аренда индексируется, проценты облагаются НДФЛ. */
+export interface DepositAccumulationOptions {
+  /** Ежемесячная аренда в начале (руб). */
+  rentMonthlyBase: number;
+  /** Годовая инфляция для индексации аренды (0.05 = 5%). */
+  inflationRate: number;
+  /** Ставка НДФЛ на проценты (0.13). */
+  taxRate: number;
+  /** Необлагаемая сумма процентов в год, ₽. */
+  exemptionPerYearRub: number;
+}
+
+/**
+ * Накопление по вкладу с учётом:
+ * - двух фаз ставки (высокая 36 мес, затем целевая);
+ * - при options: ежемесячное списание аренды (индексация по инфляции) и годовой налог на проценты сверх лимита.
+ * Пошаговый расчёт в копейках.
+ */
 export function depositAccumulation(
   initialTotalCapital: number,
   depositRate: number,
-  month: number
+  month: number,
+  options?: DepositAccumulationOptions
 ): number {
-  if (month <= DEPOSIT_PHASE_MONTHS) {
-    return initialTotalCapital * Math.pow(1 + depositRate / 12, month);
+  const initialK = rublesToKopeks(initialTotalCapital);
+  if (month <= 0) return kopeksToRubles(initialK);
+
+  const monthlyRate1 = depositRate / 12;
+  const monthlyRate2 = (TARGET_DEPOSIT_RATE_AFTER_PHASE / 12) * TAX_DRAG_COEFFICIENT;
+  const exemptionK = rublesToKopeks(options?.exemptionPerYearRub ?? DEPOSIT_INTEREST_EXEMPTION_PER_YEAR_RUB);
+  const taxRate = options?.taxRate ?? DEPOSIT_TAX_RATE;
+  const inflationRate = options?.inflationRate ?? INFLATION_RATE_FOR_RENT;
+  const rentBaseK = options ? rublesToKopeks(options.rentMonthlyBase) : 0;
+  const useRentAndTax = options != null && rentBaseK >= 0;
+
+  let balanceK = initialK;
+  let interestEarnedThisYearK = 0;
+
+  for (let m = 1; m <= month; m++) {
+    const monthlyRate = m <= DEPOSIT_PHASE_MONTHS ? monthlyRate1 : monthlyRate2;
+    const interestK = roundKopeks(balanceK * monthlyRate);
+    balanceK = roundKopeks(balanceK + interestK);
+
+    if (useRentAndTax) {
+      const yearIndex = Math.floor((m - 1) / 12);
+      const rentMultiplier = yearIndex <= 0 ? 1 : Math.pow(1 + inflationRate, yearIndex);
+      const rentK = roundKopeks(rentBaseK * rentMultiplier);
+      balanceK = roundKopeks(Math.max(0, balanceK - rentK));
+      interestEarnedThisYearK += interestK;
+    }
+
+    if (useRentAndTax && m > 0 && m % 12 === 0) {
+      const taxK = roundKopeks(
+        Math.max(0, interestEarnedThisYearK - exemptionK) * taxRate
+      );
+      balanceK = roundKopeks(Math.max(0, balanceK - taxK));
+      interestEarnedThisYearK = 0;
+    }
   }
-  const depositAt36 =
-    initialTotalCapital * Math.pow(1 + depositRate / 12, DEPOSIT_PHASE_MONTHS);
-  return (
-    depositAt36 *
-    Math.pow(
-      1 + (TARGET_DEPOSIT_RATE_AFTER_PHASE / 12) * TAX_DRAG_COEFFICIENT,
-      month - DEPOSIT_PHASE_MONTHS
-    )
-  );
+
+  return kopeksToRubles(balanceK);
 }
 
-/** Build full chart rows with netEquity, deposit, optional compare. */
+/**
+ * Строит строки графика с netEquity, вкладом и опциональным сравнением.
+ * Все суммы считаются в копейках с округлением на каждом шаге; на выходе — рубли для UI.
+ */
 export function buildChartDataWithDeposit(
   input: ChartWithDepositInput
 ): ChartRowWithDeposit[] {
@@ -87,65 +158,108 @@ export function buildChartDataWithDeposit(
     depositRate,
     appreciationPercent,
     rentalYieldPercent,
-    compareStrategy,
     comparePreset,
+    riskScenario = "none",
+    initialTotalCapitalOverride,
   } = input;
-  const appreciationRate = appreciationPercent / 100;
-  const downPayment = price * (downPercent / 100);
-  const loanAmount = price - downPayment;
+  const appreciationRate =
+    (appreciationPercent > 0 ? appreciationPercent : DEFAULT_APPRECIATION_PERCENT) / 100;
+  const downPaymentRub = price * (downPercent / 100);
+  const loanAmountRub = price - downPaymentRub;
   const annuity = FinancialEngine.annuity({
-    principal: loanAmount,
+    principal: loanAmountRub,
     annualRate: ratePercent / 100,
     termYears,
   });
-  const initialTotalCapital = price;
-  const initialCash = initialTotalCapital - downPayment;
-  const rentMonthlyBase = (price * (rentalYieldPercent / 100)) / 12;
 
-  let cumulativeInterest = 0;
+  const initialTotalCapital = initialTotalCapitalOverride ?? price;
+  const priceK = rublesToKopeks(price);
+  const downPaymentK = rublesToKopeks(downPaymentRub);
+  const initialCashK = rublesToKopeks(initialTotalCapital) - downPaymentK;
+  const monthlyPaymentK = rublesToKopeks(annuity.monthlyPayment);
+  const rentMonthlyBaseRub = (price * (rentalYieldPercent / 100)) / 12;
+  const useStagnation = riskScenario === "stagnation";
+  const useHyperinflation = riskScenario === "hyperinflation";
+
+  let cumulativeInterestRub = 0;
   let breakEvenAssigned = false;
 
   return mergedChartData.map((row) => {
-    cumulativeInterest += row.interest;
+    cumulativeInterestRub += row.interest;
     const years = row.month / 12;
-    const propertyValue = price * Math.pow(1 + appreciationRate, years);
-    const equityInProperty = Math.max(0, propertyValue - row.balance);
-    const cumulativePayment = annuity.monthlyPayment * row.month;
-    const remainingCash = Math.max(0, initialCash - cumulativePayment);
-    const savedRentTotalIndexed = accumulatedIndexedRent(
-      rentMonthlyBase,
-      row.month
+    const balanceK = rublesToKopeks(row.balance);
+    let propertyValueK: number;
+    if (useStagnation) {
+      if (row.month <= STAGNATION_MONTHS) {
+        const dropFactor = 1 - STAGNATION_DROP_PERCENT * (row.month / STAGNATION_MONTHS);
+        propertyValueK = roundKopeks(priceK * dropFactor);
+      } else {
+        const yearsAfterStagnation = (row.month - STAGNATION_MONTHS) / 12;
+        const valueAt24 = priceK * (1 - STAGNATION_DROP_PERCENT);
+        propertyValueK = roundKopeks(
+          valueAt24 * Math.pow(1 + appreciationRate, yearsAfterStagnation)
+        );
+      }
+    } else {
+      propertyValueK = roundKopeks(
+        priceK * Math.pow(1 + appreciationRate, years)
+      );
+    }
+    const equityInPropertyK = Math.max(0, propertyValueK - balanceK);
+    const cumulativePaymentK = monthlyPaymentK * row.month;
+    const remainingCashK = Math.max(0, initialCashK - cumulativePaymentK);
+    const savedRentTotalRub = accumulatedIndexedRent(
+      rentMonthlyBaseRub,
+      row.month,
+      useHyperinflation ? HYPERINFLATION_RENT_RATE : undefined
     );
-    const netEquity =
-      equityInProperty + remainingCash + savedRentTotalIndexed;
-    const depositAcc = depositAccumulation(
-      initialTotalCapital,
-      depositRate,
-      row.month
-    );
-    const totalProfit =
-      propertyValue - price + savedRentTotalIndexed;
+    const savedRentK = rublesToKopeks(savedRentTotalRub);
+    const netEquityK =
+      equityInPropertyK + remainingCashK + savedRentK;
+    const depositAccRub = depositAccumulation(initialTotalCapital, depositRate, row.month, {
+      rentMonthlyBase: rentMonthlyBaseRub,
+      inflationRate: useHyperinflation ? HYPERINFLATION_RENT_RATE : INFLATION_RATE_FOR_RENT,
+      taxRate: DEPOSIT_TAX_RATE,
+      exemptionPerYearRub: DEPOSIT_INTEREST_EXEMPTION_PER_YEAR_RUB,
+    });
+    const depositAccK = rublesToKopeks(depositAccRub);
+    const totalProfitRub =
+      kopeksToRubles(propertyValueK - priceK) + savedRentTotalRub;
     const isBreakEven =
       !breakEvenAssigned &&
-      totalProfit > cumulativeInterest &&
+      totalProfitRub > cumulativeInterestRub &&
       (breakEvenAssigned = true);
 
     const out: ChartRowWithDeposit = {
       ...row,
-      netEquity,
-      depositAccumulation: depositAcc,
+      netEquity: kopeksToRubles(netEquityK),
+      depositAccumulation: kopeksToRubles(depositAccK),
       isBreakEven: !!isBreakEven,
-      propertyValueGrowth: propertyValue - price,
-      savedRentIndexed: savedRentTotalIndexed,
+      propertyValueGrowth: kopeksToRubles(propertyValueK - priceK),
+      savedRentIndexed: kopeksToRubles(savedRentK),
     };
 
     if (comparePreset && "balanceCompare" in row && row.balanceCompare != null) {
-      const comparePropertyValue =
-        comparePreset.price *
-        Math.pow(1 + appreciationRate, years);
-      out.netEquityCompare = Math.max(
-        0,
-        comparePropertyValue - row.balanceCompare
+      const comparePriceK = rublesToKopeks(comparePreset.price);
+      let comparePropertyValueK: number;
+      if (useStagnation) {
+        if (row.month <= STAGNATION_MONTHS) {
+          const dropFactor = 1 - STAGNATION_DROP_PERCENT * (row.month / STAGNATION_MONTHS);
+          comparePropertyValueK = roundKopeks(comparePriceK * dropFactor);
+        } else {
+          const yearsAfter = (row.month - STAGNATION_MONTHS) / 12;
+          comparePropertyValueK = roundKopeks(
+            comparePriceK * (1 - STAGNATION_DROP_PERCENT) * Math.pow(1 + appreciationRate, yearsAfter)
+          );
+        }
+      } else {
+        comparePropertyValueK = roundKopeks(
+          comparePriceK * Math.pow(1 + appreciationRate, years)
+        );
+      }
+      const balanceCompareK = rublesToKopeks(row.balanceCompare);
+      out.netEquityCompare = kopeksToRubles(
+        Math.max(0, comparePropertyValueK - balanceCompareK)
       );
     }
 
@@ -163,7 +277,10 @@ export interface VerdictBenefitInput {
   growthRate: number;
 }
 
-/** Verdict benefit: finalValue + totalRent - totalPayments - downPayment + taxRefunds. */
+/**
+ * Выгода вердикта: finalValue + totalRent - totalPayments - downPayment + taxRefunds.
+ * Расчёт в копейках; результат в рублях.
+ */
 export function calculateVerdictBenefit(input: VerdictBenefitInput): number {
   const {
     price,
@@ -174,10 +291,16 @@ export function calculateVerdictBenefit(input: VerdictBenefitInput): number {
     taxRefunds,
     growthRate,
   } = input;
-  const finalValue = price * Math.pow(1 + growthRate, termYears);
-  const raw =
-    finalValue + totalRent - totalPayments - downPayment + taxRefunds;
-  return Number.isFinite(raw) ? raw : 0;
+  const finalValueRub = price * Math.pow(1 + growthRate, termYears);
+  const finalValueK = rublesToKopeks(finalValueRub);
+  const totalRentK = rublesToKopeks(totalRent);
+  const totalPaymentsK = rublesToKopeks(totalPayments);
+  const downPaymentK = rublesToKopeks(downPayment);
+  const taxRefundsK = rublesToKopeks(taxRefunds);
+  const rawK =
+    finalValueK + totalRentK - totalPaymentsK - downPaymentK + taxRefundsK;
+  if (!Number.isFinite(rawK)) return 0;
+  return kopeksToRubles(roundKopeks(rawK));
 }
 
 export interface CompareBenefitInput {
@@ -192,15 +315,17 @@ export interface CompareBenefitResult {
   benefitDelta: number;
 }
 
-/** Compare scenario verdict benefit and delta vs main. */
+/**
+ * Вердикт сценария сравнения и дельта с основным. Все суммы в копейках внутри; выход в рублях.
+ */
 export function calculateCompareBenefit(
   input: CompareBenefitInput
 ): CompareBenefitResult {
   const { preset, rentalYieldPercent, growthRate, mainVerdictBenefit } = input;
-  const principalCompare =
+  const principalCompareRub =
     preset.price * (1 - preset.downPercent / 100);
   const annuityCompare = FinancialEngine.annuity({
-    principal: principalCompare,
+    principal: principalCompareRub,
     annualRate: preset.ratePercent / 100,
     termYears: preset.termYears,
   });
@@ -208,22 +333,28 @@ export function calculateCompareBenefit(
     preset.price,
     annuityCompare.totalInterest
   );
-  const downCompare = preset.price * (preset.downPercent / 100);
-  const rentMonthlyCompare =
+  const downCompareRub = preset.price * (preset.downPercent / 100);
+  const rentMonthlyCompareRub =
     (preset.price * (rentalYieldPercent / 100)) / 12;
-  const totalRentCompare =
-    rentMonthlyCompare * 12 * preset.termYears;
-  const finalValueCompare =
+  const totalRentCompareRub =
+    rentMonthlyCompareRub * 12 * preset.termYears;
+  const finalValueCompareRub =
     preset.price * Math.pow(1 + growthRate, preset.termYears);
-  const benefitCompare =
-    finalValueCompare +
-    totalRentCompare -
-    annuityCompare.totalPayment -
-    downCompare +
-    taxCompare.totalRefund;
+
+  const finalValueK = rublesToKopeks(finalValueCompareRub);
+  const totalRentK = rublesToKopeks(totalRentCompareRub);
+  const totalPaymentK = rublesToKopeks(annuityCompare.totalPayment);
+  const downK = rublesToKopeks(downCompareRub);
+  const taxK = rublesToKopeks(taxCompare.totalRefund);
+  const benefitCompareK =
+    finalValueK + totalRentK - totalPaymentK - downK + taxK;
+  const benefitCompareRub = kopeksToRubles(benefitCompareK);
+  const mainK = rublesToKopeks(mainVerdictBenefit);
+  const benefitDeltaK = mainK - benefitCompareK;
+
   return {
-    verdictBenefitCompare: benefitCompare,
-    benefitDelta: mainVerdictBenefit - benefitCompare,
+    verdictBenefitCompare: benefitCompareRub,
+    benefitDelta: kopeksToRubles(benefitDeltaK),
   };
 }
 

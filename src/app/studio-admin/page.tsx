@@ -9,6 +9,7 @@ import {
   getAdminSettings,
   setAdminSettings,
   type AdminSettings,
+  type PartnerData,
 } from "@/lib/admin-storage";
 import { config } from "@/lib/config";
 
@@ -38,6 +39,7 @@ const DEFAULT_SETTINGS: AdminSettings = {
   usdtFeePercent: 0,
   defaultLocale: "ru",
   depositRate: 0.18,
+  partners: {},
 };
 
 const panelGlow =
@@ -68,6 +70,200 @@ const badgeClass =
 
 type RatesField = "bankRate" | "taxRate" | "priceGrowth";
 type ProfileKey = "investment" | "family" | "start";
+
+function PartnerCard({
+  id,
+  data,
+  onUpdate,
+  onDelete,
+  inputClass,
+}: {
+  id: string;
+  data: PartnerData;
+  onUpdate: (data: PartnerData) => void;
+  onDelete: () => void;
+  inputClass: string;
+}) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-zinc-900/50 p-4 space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-mono text-sm text-amber-400/90">?partner={id}</span>
+        <button
+          type="button"
+          onClick={onDelete}
+          className="text-xs text-red-400 hover:text-red-300"
+        >
+          Удалить
+        </button>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <div>
+          <label className="mb-0.5 block text-xs text-zinc-500">Название</label>
+          <input
+            type="text"
+            value={data.companyName}
+            onChange={(e) => onUpdate({ ...data, companyName: e.target.value })}
+            className={inputClass}
+            placeholder="Realty Pro"
+          />
+        </div>
+        <div>
+          <label className="mb-0.5 block text-xs text-zinc-500">Телефон WhatsApp</label>
+          <input
+            type="text"
+            value={data.contactPhone}
+            onChange={(e) => onUpdate({ ...data, contactPhone: e.target.value })}
+            className={inputClass}
+            placeholder="+7 999 123-45-67"
+          />
+        </div>
+        <div className="sm:col-span-2">
+          <label className="mb-0.5 block text-xs text-zinc-500">Лого (URL)</label>
+          <input
+            type="text"
+            value={data.logoUrl}
+            onChange={(e) => onUpdate({ ...data, logoUrl: e.target.value })}
+            className={inputClass}
+            placeholder="/logo.png"
+          />
+        </div>
+        <div>
+          <label className="mb-0.5 block text-xs text-zinc-500">Telegram Chat ID (лиды)</label>
+          <input
+            type="text"
+            value={data.telegramChatId}
+            onChange={(e) => onUpdate({ ...data, telegramChatId: e.target.value })}
+            className={`${inputClass} font-mono`}
+            placeholder="-1001234567890"
+          />
+        </div>
+        <div>
+          <label className="mb-0.5 block text-xs text-zinc-500">Цвет (HEX)</label>
+          <input
+            type="text"
+            value={data.primaryColor ?? ""}
+            onChange={(e) => onUpdate({ ...data, primaryColor: e.target.value || undefined })}
+            className={`${inputClass} font-mono`}
+            placeholder="#007AFF"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AddPartnerForm({
+  onAdd,
+  inputClass,
+}: {
+  onAdd: (id: string, data: PartnerData) => void;
+  inputClass: string;
+}) {
+  const [slug, setSlug] = useState("");
+  const [companyName, setCompanyName] = useState("");
+  const [logoUrl, setLogoUrl] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
+  const [telegramChatId, setTelegramChatId] = useState("");
+  const [primaryColor, setPrimaryColor] = useState("");
+  const handleAdd = () => {
+    const id = slug.trim().toLowerCase().replace(/[^a-z0-9_]/g, "_");
+    if (!id) {
+      alert("Введите slug (латиница, например realty_pro)");
+      return;
+    }
+    if (!companyName.trim()) {
+      alert("Введите название компании");
+      return;
+    }
+    onAdd(id, {
+      companyName: companyName.trim(),
+      logoUrl: logoUrl.trim(),
+      contactPhone: contactPhone.trim(),
+      telegramChatId: telegramChatId.trim(),
+      primaryColor: primaryColor.trim() && /^#[0-9A-Fa-f]{6}$/.test(primaryColor.trim()) ? primaryColor.trim() : undefined,
+    });
+    setSlug("");
+    setCompanyName("");
+    setLogoUrl("");
+    setContactPhone("");
+    setTelegramChatId("");
+    setPrimaryColor("");
+  };
+  return (
+    <div className="rounded-xl border border-dashed border-white/20 bg-white/5 p-4 space-y-3">
+      <p className="text-xs text-zinc-500">Новый партнёр</p>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <div>
+          <label className="mb-0.5 block text-xs text-zinc-500">Slug (ID в URL)</label>
+          <input
+            type="text"
+            value={slug}
+            onChange={(e) => setSlug(e.target.value)}
+            className={`${inputClass} font-mono`}
+            placeholder="realty_pro"
+          />
+        </div>
+        <div>
+          <label className="mb-0.5 block text-xs text-zinc-500">Название компании</label>
+          <input
+            type="text"
+            value={companyName}
+            onChange={(e) => setCompanyName(e.target.value)}
+            className={inputClass}
+            placeholder="Realty Pro"
+          />
+        </div>
+        <div>
+          <label className="mb-0.5 block text-xs text-zinc-500">Телефон</label>
+          <input
+            type="text"
+            value={contactPhone}
+            onChange={(e) => setContactPhone(e.target.value)}
+            className={inputClass}
+            placeholder="+7 999 123-45-67"
+          />
+        </div>
+        <div>
+          <label className="mb-0.5 block text-xs text-zinc-500">Telegram Chat ID</label>
+          <input
+            type="text"
+            value={telegramChatId}
+            onChange={(e) => setTelegramChatId(e.target.value)}
+            className={`${inputClass} font-mono`}
+            placeholder="-1001234567890"
+          />
+        </div>
+        <div className="sm:col-span-2">
+          <label className="mb-0.5 block text-xs text-zinc-500">Лого URL</label>
+          <input
+            type="text"
+            value={logoUrl}
+            onChange={(e) => setLogoUrl(e.target.value)}
+            className={inputClass}
+            placeholder="/logo.png"
+          />
+        </div>
+        <div>
+          <label className="mb-0.5 block text-xs text-zinc-500">Цвет (HEX)</label>
+          <input
+            type="text"
+            value={primaryColor}
+            onChange={(e) => setPrimaryColor(e.target.value)}
+            className={`${inputClass} font-mono`}
+            placeholder="#007AFF"
+          />
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={handleAdd}
+        className="rounded-full bg-amber-500/20 text-amber-400 px-4 py-2 text-sm font-medium border border-amber-500/30 hover:bg-amber-500/30"
+      >
+        Добавить партнёра
+      </button>
+    </div>
+  );
+}
 
 function AdminPanel({
   settings,
@@ -1143,6 +1339,46 @@ function AdminPanel({
                     </div>
                   </div>
                 </section>
+
+                <section className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-6 backdrop-blur-xl">
+                  <h2 className="mb-2 text-sm font-medium uppercase tracking-wider text-amber-400/90">
+                    Партнёры (White Label)
+                  </h2>
+                  <p className="mb-4 text-xs text-zinc-500">
+                    При переходе по ссылке ?partner=slug интерфейс перекрашивается под партнёра, лиды уходят в его Telegram-чат.
+                  </p>
+                  <div className="space-y-4 border-t border-white/5 pt-4">
+                    {Object.entries(settings.partners ?? {}).map(([id, p]) => (
+                      <PartnerCard
+                        key={id}
+                        id={id}
+                        data={p}
+                        onUpdate={(data) =>
+                          setSettings({
+                            partners: { ...settings.partners, [id]: data },
+                          })
+                        }
+                        onDelete={() => {
+                          const next = { ...settings.partners };
+                          delete next[id];
+                          setSettings({ partners: next });
+                        }}
+                        inputClass={inputIos}
+                      />
+                    ))}
+                    <AddPartnerForm
+                      onAdd={(id, data) => {
+                        const slug = id.trim().toLowerCase().replace(/[^a-z0-9_]/g, "_") || "partner";
+                        const key = slug in (settings.partners ?? {}) ? `${slug}_${Date.now()}` : slug;
+                        setSettings({
+                          partners: { ...settings.partners, [key]: data },
+                        });
+                      }}
+                      inputClass={inputIos}
+                    />
+                  </div>
+                </section>
+
                 <div className="flex justify-end">
                   <button
                     type="button"
@@ -1551,6 +1787,7 @@ export default function StudioAdminPage() {
           start: { ...prev.rates.start, ...(patch.rates?.start ?? {}) },
         },
         depositRate: patch.depositRate ?? prev.depositRate,
+        partners: patch.partners !== undefined ? patch.partners : prev.partners,
       };
     });
   }, []);

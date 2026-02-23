@@ -12,6 +12,12 @@ export const translations = {
   // Strategy block
   baseStrategy: { ru: "Базовая стратегия", en: "Base strategy" },
   compareWith: { ru: "Сравнить с (альтернатива)", en: "Compare with (alternative)" },
+  compareWithAnotherJK: { ru: "Сравнить с другим ЖК", en: "Compare with another property" },
+  objectA: { ru: "Объект А", en: "Object A" },
+  objectB: { ru: "Объект Б", en: "Object B" },
+  jkAlpha: { ru: "ЖК Альфа", en: "JK Alpha" },
+  jkBeta: { ru: "ЖК Бета", en: "JK Beta" },
+  depositLabel: { ru: "Банковский вклад", en: "Bank deposit" },
   strategyInvestor: { ru: "Инвестиция", en: "Investment" },
   strategyFamily: { ru: "Семья", en: "Family" },
   strategyEntry: { ru: "Старт", en: "Entry" },
@@ -59,6 +65,8 @@ export const translations = {
   // CTA & footer
   getPdfReport: { ru: "Получить детальный план в PDF", en: "Get detailed plan in PDF" },
   downloadPdfReport: { ru: "Скачать PDF-отчет", en: "Download PDF report" },
+  downloadReportJpg: { ru: "Скачать отчет в WhatsApp (JPG)", en: "Download report for WhatsApp (JPG)" },
+  downloadReportJpgShort: { ru: "Скачать отчет (JPG)", en: "Download report (JPG)" },
   leadModalTitle: { ru: "Отправить расчёт и скачать PDF", en: "Send lead and download PDF" },
   leadModalTitleFull: { ru: "Получить полный инвест-отчет на почту/WhatsApp", en: "Get full investment report by email/WhatsApp" },
   leadNamePlaceholder: { ru: "Ваше имя", en: "Your name" },
@@ -104,6 +112,37 @@ export const translations = {
   tooltipDifferentWeight: { ru: "Активы в разных весовых категориях (Твердый vs Ликвидный)", en: "Assets in different weight classes (Hard vs Liquid)" },
   tooltipPriceGrowth: { ru: "Рост цены объекта:", en: "Property price growth:" },
   tooltipRentAccumulated: { ru: "Накопленный доход от аренды:", en: "Accumulated rental income:" },
+  inflectionPoint: { ru: "Инфляционный перегиб", en: "Inflation Inflection" },
+  rentExceedsIncome: { ru: "Аренда > Дохода по вкладу", en: "Rent > Deposit income" },
+  trapWarning: { ru: "Вклад тает из-за инфляции", en: "Deposit decays due to inflation" },
+
+  // Black Swan (risk scenarios)
+  riskBlockTitle: { ru: "Сценарии риска", en: "Risk scenarios" },
+  riskNone: { ru: "Базовый", en: "Base" },
+  riskStagnation: { ru: "Стагнация", en: "Stagnation" },
+  riskHyperinflation: { ru: "Гиперинфляция", en: "Hyperinflation" },
+  riskStagnationDesc: { ru: "Падение цен на 10–15% в первые 2 года", en: "10–15% price drop in first 2 years" },
+  riskHyperinflationDesc: { ru: "Резкий рост индексации аренды", en: "Sharp rent indexation rise" },
+
+  // Zero-Point validation
+  zeroPointBadge: { ru: "Единая точка старта капитала", en: "Same starting capital" },
+  zeroPointValid: { ru: "Zero-Point Sync", en: "Zero-Point Sync" },
+
+  // Expert verdict
+  expertVerdictTitle: { ru: "Резюме эксперта", en: "Expert summary" },
+  expertSummaryTitle: { ru: "Резюме эксперта", en: "Expert summary" },
+  expertSummaryWithCrossover: {
+    ru: "За счёт ежегодного роста цены объекта на {X}% и индексации аренды, недвижимость становится выгоднее вклада на {N} году. Итоговый капитал к концу срока: {M} млн ₽.",
+    en: "Due to {X}% annual property appreciation and rent indexation, property outperforms the deposit in year {N}. Final capital at end of term: {M} m ₽.",
+  },
+  expertSummaryNoCrossover: {
+    ru: "На выбранном сроке недвижимость не обгоняет вклад.",
+    en: "Within the selected term, property does not overtake the deposit.",
+  },
+  expertBreakEvenIn: { ru: "Точка окупаемости через", en: "Break-even in" },
+  expertAdvantageOverDeposit: { ru: "Преимущество ипотеки над вкладом", en: "Mortgage advantage over deposit" },
+  expertNoBreakEven: { ru: "На выбранном сроке окупаемость не достигнута", en: "Break-even not reached within term" },
+  expertNoAdvantage: { ru: "На выбранном горизонте вклад выше", en: "Deposit leads on selected horizon" },
 } as const;
 
 export type TranslationKey = keyof typeof translations;

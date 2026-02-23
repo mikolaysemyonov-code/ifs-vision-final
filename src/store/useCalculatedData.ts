@@ -13,8 +13,7 @@ import {
   type ChartRowWithDeposit,
 } from "@/lib/engine/financialEngine";
 import { DEFAULT_DEPOSIT_RATE } from "@/config/constants";
-import { useStore } from "./useStore";
-import { useChartData } from "./useChartData";
+import { useStore, useChartData, useChartDataB } from "./useStore";
 
 type CompareStrategy = "investor" | "family" | "entry" | null;
 
@@ -25,6 +24,9 @@ const simulatorInputSelector = (s: {
   termYears: number;
   rentalYieldPercent: number;
   config: { baseRates: { priceGrowthPercent: number } };
+  riskScenario: "none" | "stagnation" | "hyperinflation";
+  comparisonMode: boolean;
+  inputsB: { price: number; downPercent: number; ratePercent: number; termYears: number; rentalYieldPercent: number };
 }) => ({
   price: s.price,
   downPercent: s.downPercent,
@@ -33,10 +35,15 @@ const simulatorInputSelector = (s: {
   rentalYieldPercent: s.rentalYieldPercent,
   priceGrowthPercent: s.config.baseRates.priceGrowthPercent,
   growthRate: s.config.baseRates.priceGrowthPercent / 100,
+  riskScenario: s.riskScenario,
+  comparisonMode: s.comparisonMode,
+  inputsB: s.inputsB,
 });
 
 export interface CalculatedData {
   chartDataWithDeposit: ChartRowWithDeposit[];
+  /** Данные графика для Объекта Б (Comparison Mode); null если comparisonMode выключен. */
+  chartDataWithDepositB: ChartRowWithDeposit[] | null;
   annuity: AnnuityResult;
   taxDeductions: TaxDeductionResult;
   roi: ROIResult;
@@ -55,6 +62,7 @@ export function useCalculatedData(
   compareStrategy: CompareStrategy
 ): CalculatedData {
   const chartData = useChartData();
+  const chartDataB = useChartDataB();
   const {
     price,
     downPercent,
@@ -63,6 +71,9 @@ export function useCalculatedData(
     rentalYieldPercent,
     priceGrowthPercent,
     growthRate,
+    riskScenario,
+    comparisonMode,
+    inputsB,
   } = useStore(useShallow(simulatorInputSelector));
 
   const downPayment = useMemo(
@@ -115,6 +126,7 @@ export function useCalculatedData(
         comparePreset: compareStrategy
           ? config.scenarioPresets[compareStrategy]
           : null,
+        riskScenario,
       }),
     [
       mergedChartData,
@@ -126,8 +138,44 @@ export function useCalculatedData(
       appreciationPercent,
       rentalYieldPercent,
       compareStrategy,
+      riskScenario,
     ]
   );
+
+  const mergedChartDataB = useMemo(
+    () => (comparisonMode ? chartDataB : null),
+    [comparisonMode, chartDataB]
+  );
+
+  const chartDataWithDepositB = useMemo(() => {
+    if (!comparisonMode || !mergedChartDataB) return null;
+    return buildChartDataWithDeposit({
+      mergedChartData: mergedChartDataB,
+      price: inputsB.price,
+      downPercent: inputsB.downPercent,
+      ratePercent: inputsB.ratePercent,
+      termYears: inputsB.termYears,
+      depositRate,
+      appreciationPercent,
+      rentalYieldPercent: inputsB.rentalYieldPercent,
+      compareStrategy: null,
+      comparePreset: null,
+      riskScenario,
+      initialTotalCapitalOverride: price,
+    });
+  }, [
+    comparisonMode,
+    mergedChartDataB,
+    inputsB.price,
+    inputsB.downPercent,
+    inputsB.ratePercent,
+    inputsB.termYears,
+    inputsB.rentalYieldPercent,
+    depositRate,
+    appreciationPercent,
+    riskScenario,
+    price,
+  ]);
 
   const annuity = useMemo(
     () =>
@@ -214,6 +262,7 @@ export function useCalculatedData(
 
   return {
     chartDataWithDeposit,
+    chartDataWithDepositB,
     annuity,
     taxDeductions,
     roi,

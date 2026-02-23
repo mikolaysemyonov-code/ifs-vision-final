@@ -1,7 +1,15 @@
 /**
  * IFS Vision — Financial Engine
  * Расчёты ипотеки, налоговых вычетов и ROI при аренде.
+ * Внутри все денежные суммы в копейках; вход/выход в рублях для UI.
  */
+
+import {
+  rublesToKopeks,
+  kopeksToRubles,
+  roundKopeks,
+  KOPEKS_PER_RUBLE,
+} from "@/lib/money";
 
 /** Лимит имущественного вычета (возврат до 260 000 ₽ при ставке 13%). */
 export const PROPERTY_DEDUCTION_LIMIT = 2_000_000;
@@ -120,24 +128,27 @@ export interface CompareWithRentResult {
 export class FinancialEngine {
   /**
    * Ежемесячный аннуитетный платёж и итоги по кредиту.
+   * Внутри: расчёт в копейках, округление на каждом шаге.
    */
   static annuity(input: AnnuityInput): AnnuityResult {
     const { principal, annualRate, termYears } = input;
     if (principal <= 0 || termYears <= 0) {
       return { monthlyPayment: 0, totalPayment: 0, totalInterest: 0 };
     }
+    const principalK = rublesToKopeks(principal);
     const n = Math.round(termYears * 12);
     const r = annualRate / 12;
-    const monthlyPayment =
+    const monthlyPaymentRub =
       r === 0
         ? principal / n
         : (principal * r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1);
-    const totalPayment = monthlyPayment * n;
-    const totalInterest = totalPayment - principal;
+    const monthlyK = rublesToKopeks(monthlyPaymentRub);
+    const totalPaymentK = monthlyK * n;
+    const totalInterestK = totalPaymentK - principalK;
     return {
-      monthlyPayment: Math.round(monthlyPayment * 100) / 100,
-      totalPayment: Math.round(totalPayment * 100) / 100,
-      totalInterest: Math.round(totalInterest * 100) / 100,
+      monthlyPayment: kopeksToRubles(monthlyK),
+      totalPayment: kopeksToRubles(totalPaymentK),
+      totalInterest: kopeksToRubles(totalInterestK),
     };
   }
 
@@ -159,53 +170,57 @@ export class FinancialEngine {
 
   /**
    * Налоговые вычеты: имущественный (до 260 000 ₽) и по процентам (до 390 000 ₽).
-   * @param purchasePrice — цена приобретения (база для имущественного вычета, макс. 2 000 000 учтено).
-   * @param totalInterestPaid — уплаченные проценты по ипотеке (база макс. 3 000 000).
+   * Расчёт в копейках, результат в рублях.
    */
   static taxDeductions(
     purchasePrice: number,
     totalInterestPaid: number
   ): TaxDeductionResult {
-    const propertyBase = Math.min(purchasePrice, PROPERTY_DEDUCTION_LIMIT);
-    const interestBase = Math.min(
-      totalInterestPaid,
-      MORTGAGE_INTEREST_DEDUCTION_LIMIT
+    const propertyBaseK = Math.min(
+      rublesToKopeks(purchasePrice),
+      rublesToKopeks(PROPERTY_DEDUCTION_LIMIT)
     );
-    const propertyRefund = Math.round(
-      propertyBase * INCOME_TAX_RATE
-    ) as number;
-    const interestRefund = Math.round(
-      interestBase * INCOME_TAX_RATE
-    ) as number;
+    const interestBaseK = Math.min(
+      rublesToKopeks(totalInterestPaid),
+      rublesToKopeks(MORTGAGE_INTEREST_DEDUCTION_LIMIT)
+    );
+    const propertyRefundK = roundKopeks(propertyBaseK * INCOME_TAX_RATE);
+    const interestRefundK = roundKopeks(interestBaseK * INCOME_TAX_RATE);
+    const capProperty = 260_000 * KOPEKS_PER_RUBLE;
+    const capInterest = 390_000 * KOPEKS_PER_RUBLE;
+    const propertyRefundCapped = Math.min(propertyRefundK, capProperty);
+    const interestRefundCapped = Math.min(interestRefundK, capInterest);
     return {
-      propertyRefund: Math.min(propertyRefund, 260_000),
-      interestRefund: Math.min(interestRefund, 390_000),
-      totalRefund: Math.min(propertyRefund, 260_000) + Math.min(interestRefund, 390_000),
+      propertyRefund: kopeksToRubles(propertyRefundCapped),
+      interestRefund: kopeksToRubles(interestRefundCapped),
+      totalRefund: kopeksToRubles(propertyRefundCapped + interestRefundCapped),
     };
   }
 
   /**
    * График погашения: для каждого месяца — остаток долга и проценты в этом месяце.
+   * Шаг за шагом в копейках с округлением на каждой итерации.
    */
   static getAmortizationSchedule(input: AnnuityInput): ChartDataPoint[] {
     const { principal, annualRate, termYears } = input;
     const result = this.annuity(input);
-    const monthlyPayment = result.monthlyPayment;
+    const monthlyK = rublesToKopeks(result.monthlyPayment);
+    const principalK = rublesToKopeks(principal);
     const n = Math.round(termYears * 12);
     const r = annualRate / 12;
     const schedule: ChartDataPoint[] = [];
-    let balance = principal;
+    let balanceK = principalK;
 
     for (let month = 0; month <= n; month++) {
+      const interestK = month === 0 ? 0 : roundKopeks(balanceK * r);
       schedule.push({
         month,
-        balance: Math.round(balance * 100) / 100,
-        interest: month === 0 ? 0 : Math.round((balance * r) * 100) / 100,
+        balance: kopeksToRubles(balanceK),
+        interest: kopeksToRubles(interestK),
       });
       if (month < n) {
-        const interestPayment = balance * r;
-        const principalPayment = monthlyPayment - interestPayment;
-        balance = Math.max(0, balance - principalPayment);
+        const principalPaymentK = monthlyK - interestK;
+        balanceK = Math.max(0, balanceK - principalPaymentK);
       }
     }
     return schedule;
@@ -238,9 +253,9 @@ export class FinancialEngine {
 
     return {
       roiPercent: Math.round(roiPercent * 100) / 100,
-      annualCashflow: Math.round(annualCashflow * 100) / 100,
+      annualCashflow: kopeksToRubles(rublesToKopeks(annualCashflow)),
       totalAnnualReturnPercent: Math.round(totalAnnualReturnPercent * 100) / 100,
-      annualAppreciation: Math.round(annualAppreciation * 100) / 100,
+      annualAppreciation: kopeksToRubles(rublesToKopeks(annualAppreciation)),
     };
   }
 
@@ -272,8 +287,8 @@ export class FinancialEngine {
       currentPropertyPrice * Math.pow(1 + propertyGrowthRate, years);
 
     return {
-      rentTotal: Math.round(rentTotal * 100) / 100,
-      propertyEquity: Math.round(propertyEquity * 100) / 100,
+      rentTotal: kopeksToRubles(rublesToKopeks(rentTotal)),
+      propertyEquity: kopeksToRubles(rublesToKopeks(propertyEquity)),
     };
   }
 
@@ -296,10 +311,10 @@ export class FinancialEngine {
     const paybackYears =
       netAnnualIncome > 0 ? investment / netAnnualIncome : Infinity;
     return {
-      annualRentalIncome: Math.round(annualRentalIncome * 100) / 100,
-      annualExpenses: Math.round(annualExpenses * 100) / 100,
-      netAnnualIncome: Math.round(netAnnualIncome * 100) / 100,
-      investment,
+      annualRentalIncome: kopeksToRubles(rublesToKopeks(annualRentalIncome)),
+      annualExpenses: kopeksToRubles(rublesToKopeks(annualExpenses)),
+      netAnnualIncome: kopeksToRubles(rublesToKopeks(netAnnualIncome)),
+      investment: kopeksToRubles(rublesToKopeks(investment)),
       roiPercent: Math.round(roiPercent * 100) / 100,
       paybackYears: Math.round(paybackYears * 100) / 100,
     };

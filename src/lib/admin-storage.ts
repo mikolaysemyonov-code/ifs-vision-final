@@ -26,6 +26,20 @@ export interface AdminTelegram {
   chatId: string;
 }
 
+/** Данные партнёра для White Label: брендинг и чат для лидов. */
+export interface PartnerData {
+  /** Название компании (заголовок, PDF). */
+  companyName: string;
+  /** Логотип (URL). */
+  logoUrl: string;
+  /** Телефон для WhatsApp. */
+  contactPhone: string;
+  /** Telegram Chat ID, куда отправлять лиды этого партнёра. */
+  telegramChatId: string;
+  /** Акцентный цвет (hex). */
+  primaryColor?: string;
+}
+
 /** Один финансовый профиль: ставка банка, налог, рост цен (в %). */
 export interface AdminRatesProfile {
   bankRate: number;
@@ -94,6 +108,8 @@ export interface AdminSettings {
   defaultLocale: AdminLocale;
   /** Годовая ставка по банковскому вкладу для графика сравнения (0–1, например 0.18 = 18%) */
   depositRate: number;
+  /** Партнёры White Label: id (slug) → данные (logoUrl, companyName, contactPhone, telegramChatId). */
+  partners: Record<string, PartnerData>;
 }
 
 const defaultRatesProfile = (): AdminRatesProfile => ({
@@ -130,6 +146,7 @@ const defaultSettings: AdminSettings = {
   usdtFeePercent: 0,
   defaultLocale: "ru",
   depositRate: 0.18,
+  partners: {},
 };
 
 function mergeRates(parsed: unknown): AdminRates {
@@ -151,6 +168,27 @@ function mergeRates(parsed: unknown): AdminRates {
     family: mergeProfile("family"),
     start: mergeProfile("start"),
   };
+}
+
+function parsePartners(raw: unknown): Record<string, PartnerData> {
+  if (!raw || typeof raw !== "object") return {};
+  const out: Record<string, PartnerData> = {};
+  const obj = raw as Record<string, unknown>;
+  for (const key of Object.keys(obj)) {
+    const v = obj[key];
+    if (!v || typeof v !== "object") continue;
+    const p = v as Record<string, unknown>;
+    const companyName = typeof p.companyName === "string" ? p.companyName.trim() : "";
+    if (!companyName) continue;
+    out[key] = {
+      companyName,
+      logoUrl: typeof p.logoUrl === "string" ? p.logoUrl.trim() : "",
+      contactPhone: typeof p.contactPhone === "string" ? p.contactPhone.trim() : "",
+      telegramChatId: typeof p.telegramChatId === "string" ? p.telegramChatId.trim() : "",
+      primaryColor: typeof p.primaryColor === "string" && /^#[0-9A-Fa-f]{6}$/.test(p.primaryColor) ? p.primaryColor : undefined,
+    };
+  }
+  return out;
 }
 
 /** Миграция: старые данные с baseRates превращаем в rates (все три профиля из одного). */
@@ -176,6 +214,7 @@ function migrateFromBaseRates(parsed: Record<string, unknown>): AdminSettings | 
     usdtFeePercent: defaultSettings.usdtFeePercent,
     defaultLocale: defaultSettings.defaultLocale,
     depositRate: defaultSettings.depositRate,
+    partners: parsePartners(parsed.partners),
   };
 }
 
@@ -238,6 +277,7 @@ export function getAdminSettings(): AdminSettings {
       agencyLogoUrl: typeof brandingRaw.agencyLogoUrl === "string" ? brandingRaw.agencyLogoUrl : defaultSettings.branding.agencyLogoUrl,
       contactPhone: typeof brandingRaw.contactPhone === "string" ? brandingRaw.contactPhone : defaultSettings.branding.contactPhone,
     };
+    const partners = parsePartners(parsed.partners);
     if (parsed.rates && typeof parsed.rates === "object") {
       return {
         branding,
@@ -253,10 +293,11 @@ export function getAdminSettings(): AdminSettings {
         usdtFeePercent,
         defaultLocale,
         depositRate,
+        partners,
       };
     }
     const migrated = migrateFromBaseRates(parsed);
-    if (migrated) return { ...migrated, inflationRate, adminPassword, lastLogin, security, defaultCurrency, currencyRates, ratesAutoUpdate, usdtFeePercent, defaultLocale, depositRate };
+    if (migrated) return { ...migrated, inflationRate, adminPassword, lastLogin, security, defaultCurrency, currencyRates, ratesAutoUpdate, usdtFeePercent, defaultLocale, depositRate, partners: parsePartners(parsed.partners) };
     return defaultSettings;
   } catch {
     return defaultSettings;
@@ -271,6 +312,20 @@ export function setAdminSettings(settings: AdminSettings): void {
   } catch {
     // ignore storage errors
   }
+}
+
+/**
+ * Данные партнёра по slug (для White Label: ?partner=realty_pro).
+ * Возвращает null, если партнёр не найден или не задан companyName.
+ */
+export function getPartnerData(partnerId: string | null): (PartnerData & { id: string }) | null {
+  if (!partnerId || typeof partnerId !== "string") return null;
+  const slug = partnerId.trim().toLowerCase();
+  if (!slug) return null;
+  const settings = getAdminSettings();
+  const data = settings.partners?.[slug];
+  if (!data || !data.companyName?.trim()) return null;
+  return { ...data, id: slug };
 }
 
 export type AdminOverrides = Partial<{

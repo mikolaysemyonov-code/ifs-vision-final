@@ -78,7 +78,7 @@ const DEFAULT_STORE_CONFIG: StoreConfig = {
   security: { showTimestampInReport: true },
   baseRates: {
     defaultRatePercent: 18,
-    priceGrowthPercent: 5,
+    priceGrowthPercent: 6,
   },
 };
 
@@ -136,6 +136,18 @@ export interface FinanceState {
   exchangeRates: ExchangeRates | null;
   /** Язык интерфейса (ru | en) */
   locale: Locale;
+  /** Сценарий риска Black Swan: none | stagnation (падение цен) | hyperinflation (рост индексации аренды) */
+  riskScenario: "none" | "stagnation" | "hyperinflation";
+  /** Режим сравнения двух ЖК: Объект А vs Объект Б */
+  comparisonMode: boolean;
+  /** Входные данные для Объекта Б (цена, ставка, ПВ и т.д.) */
+  inputsB: {
+    price: number;
+    downPercent: number;
+    ratePercent: number;
+    termYears: number;
+    rentalYieldPercent: number;
+  };
   /** Загрузить курсы с /api/rates и обновить exchangeRates (и currencyConfigs при ratesAutoUpdate) */
   fetchRates: (opts?: { revalidate?: boolean }) => Promise<void>;
   setPrice: (value: number) => void;
@@ -146,6 +158,9 @@ export interface FinanceState {
   setScenario: (type: ScenarioPresetKey) => void;
   setCurrency: (currency: Currency) => void;
   setLocale: (locale: Locale) => void;
+  setRiskScenario: (scenario: "none" | "stagnation" | "hyperinflation") => void;
+  setComparisonMode: (enabled: boolean) => void;
+  setInputsB: (patch: Partial<FinanceState["inputsB"]>) => void;
 }
 
 const { defaults, scenarioPresets } = config;
@@ -186,6 +201,15 @@ export const useStore = create<FinanceState>((set) => ({
   currentScenario: "custom",
   currency: initialSettings?.defaultCurrency ?? "RUB",
   locale: initialSettings?.defaultLocale ?? "ru",
+  riskScenario: "none",
+  comparisonMode: false,
+  inputsB: {
+    price: defaults.price,
+    downPercent: defaults.downPercent,
+    ratePercent: defaults.ratePercent,
+    termYears: defaults.termYears,
+    rentalYieldPercent: defaults.rentalYieldPercent,
+  },
   currencyConfigs:
     typeof window === "undefined"
       ? getCurrencyConfigs({ currencyRates: { USD: 90, AED: 25 }, usdtFeePercent: 0 })
@@ -217,6 +241,20 @@ export const useStore = create<FinanceState>((set) => ({
     ),
   setCurrency: (currency) => set({ currency }),
   setLocale: (locale) => set({ locale }),
+  setRiskScenario: (scenario) => set({ riskScenario: scenario }),
+  setComparisonMode: (enabled) => set({ comparisonMode: enabled }),
+  setInputsB: (patch) =>
+    set((state) => ({
+      inputsB: {
+        ...state.inputsB,
+        ...patch,
+        price: Math.max(0, patch.price ?? state.inputsB.price),
+        downPercent: Math.max(0, Math.min(100, patch.downPercent ?? state.inputsB.downPercent)),
+        ratePercent: Math.max(0, Math.min(100, patch.ratePercent ?? state.inputsB.ratePercent)),
+        termYears: Math.max(1, Math.min(30, patch.termYears ?? state.inputsB.termYears)),
+        rentalYieldPercent: Math.max(0, Math.min(20, patch.rentalYieldPercent ?? state.inputsB.rentalYieldPercent)),
+      },
+    })),
 }));
 
 /** Первоначальный взнос в рублях */
@@ -286,6 +324,13 @@ const chartDataInputSelector = (s: FinanceState) => ({
   termYears: s.termYears,
 });
 
+const chartDataInputBSelector = (s: FinanceState) => ({
+  price: s.inputsB.price,
+  downPercent: s.inputsB.downPercent,
+  ratePercent: s.inputsB.ratePercent,
+  termYears: s.inputsB.termYears,
+});
+
 /**
  * Хук: данные для графика с отложенным обновлением через requestAnimationFrame,
  * чтобы не блокировать UI-поток (60 FPS). Массив стабилен при неизменных входных данных.
@@ -311,5 +356,21 @@ export function useChartData(): ChartDataPoint[] {
   }, [chartData]);
 
   return displayedData;
+}
+
+/** График погашения для Объекта Б (Comparison Mode). */
+export function useChartDataB(): ChartDataPoint[] {
+  const { price, downPercent, ratePercent, termYears } = useStore(
+    useShallow(chartDataInputBSelector)
+  );
+  return useMemo(
+    () =>
+      FinancialEngine.getAmortizationSchedule({
+        principal: price * (1 - downPercent / 100),
+        annualRate: ratePercent / 100,
+        termYears,
+      }),
+    [price, downPercent, ratePercent, termYears]
+  );
 }
 

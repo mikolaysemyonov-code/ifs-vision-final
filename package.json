@@ -1,6 +1,6 @@
 {
   "name": "ifs-vision",
-  "version": "0.1.0",
+  "version": "3.9.5",
   "private": true,
   "scripts": {
     "dev": "next dev",

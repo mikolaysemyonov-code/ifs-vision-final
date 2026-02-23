@@ -2,7 +2,9 @@
 
 > Part of the **Digital Twin Studio** ecosystem.
 
-**v2.6 Diamond Release** · [Live Demo](https://ifs-vision.vercel.app)
+**Author:** [mikolaysemyonov-code](https://github.com/mikolaysemyonov-code) · Digital Twin Studio  
+
+**v3.9.5** · [Live Demo](https://ifs-vision.vercel.app)
 
 ---
 

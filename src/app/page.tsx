@@ -1,11 +1,11 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { config } from "@/lib/config";
-import { getAdminSettings } from "@/lib/admin-storage";
+import { getAdminSettings, getPartnerData } from "@/lib/admin-storage";
 import { motion } from "framer-motion";
-import { FileText, LayoutGrid, Loader2, Percent, Receipt, Sparkles, TrendingUp, Wallet } from "lucide-react";
+import { CheckCircle2, FileText, LayoutGrid, Loader2, Percent, Receipt, Sparkles, TrendingUp, Wallet } from "lucide-react";
 import {
   AreaChart,
   Area,
@@ -17,6 +17,7 @@ import {
   ResponsiveContainer,
   Legend,
   ReferenceDot,
+  ReferenceLine,
   Label,
 } from "recharts";
 import { AnimatedNumber } from "@/components/AnimatedNumber";
@@ -29,6 +30,7 @@ import {
   useTranslations,
 } from "@/store/useStore";
 import { useCalculatedData } from "@/store/useCalculatedData";
+import { FinancialEngine } from "@/lib/engine";
 import { CurrencySwitcher } from "@/components/CurrencySwitcher";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { t as tUtil, yearsWord as yearsWordUtil, timesWord as timesWordUtil, monthWord as monthWordUtil } from "@/lib/translations";
@@ -36,6 +38,11 @@ import type { Currency } from "@/store/useStore";
 import { formatCurrency as formatCurrencyUtil, toDisplayValue } from "@/lib/formatCurrency";
 import { RENT_REINVEST_RATE } from "@/config/constants";
 import type { ChartRowWithDeposit } from "@/lib/engine/financialEngine";
+import { ExpertVerdict } from "@/components/ExpertVerdict";
+import { ExpertVerdict as ExpertInsightsVerdict } from "@/components/analytics/ExpertVerdict";
+import { ReportTemplate } from "@/components/ReportTemplate";
+import { generateExpertConclusion, getExpertConclusionMessage } from "@/services/finance";
+import html2canvas from "html2canvas";
 
 /** Цвета стратегий для графика и UI (Золото, Синий, Изумруд). */
 const STRATEGY_COLORS: Record<"investor" | "family" | "entry", string> = {
@@ -317,6 +324,13 @@ function HomeContent() {
   const exportBrandFromUrl = isExportView
     ? parseExportBrandFromUrl(searchParams)
     : null;
+  const partnerIdFromUrl = searchParams.get("partner");
+  const partnerData =
+    !isExportView &&
+    typeof window !== "undefined" &&
+    partnerIdFromUrl
+      ? getPartnerData(partnerIdFromUrl)
+      : null;
   const adminBranding = typeof window !== "undefined" ? getAdminSettings().branding : null;
   const effectiveBrand = exportBrandFromUrl
     ? {
@@ -326,10 +340,21 @@ function HomeContent() {
         logoUrl: exportBrandFromUrl.logoUrl || brand.logoUrl,
         contactPhone: exportBrandFromUrl.contactPhone ?? "",
       }
-    : {
-        ...brand,
-        contactPhone: adminBranding?.contactPhone?.trim() ?? "",
-      };
+    : partnerData
+      ? {
+          companyName: partnerData.companyName,
+          productName: partnerData.companyName,
+          primaryColor: partnerData.primaryColor ?? brand.primaryColor,
+          logoUrl: partnerData.logoUrl || brand.logoUrl,
+          contactPhone: partnerData.contactPhone ?? "",
+        }
+      : {
+          ...brand,
+          contactPhone: adminBranding?.contactPhone?.trim() ?? "",
+        };
+  const leadPartnerId = partnerData ? partnerData.id : null;
+  const leadPartnerChatId =
+    partnerData?.telegramChatId?.trim() || null;
 
   useEffect(() => {
     loadConfigFromStorage();
@@ -357,6 +382,12 @@ function HomeContent() {
   const setRentalYieldPercent = useStore((s) => s.setRentalYieldPercent);
   const currentScenario = useStore((s) => s.currentScenario);
   const setScenario = useStore((s) => s.setScenario);
+  const riskScenario = useStore((s) => s.riskScenario);
+  const setRiskScenario = useStore((s) => s.setRiskScenario);
+  const comparisonMode = useStore((s) => s.comparisonMode);
+  const setComparisonMode = useStore((s) => s.setComparisonMode);
+  const inputsB = useStore((s) => s.inputsB);
+  const setInputsB = useStore((s) => s.setInputsB);
   const setCurrency = useStore((s) => s.setCurrency);
 
   useEffect(() => {
@@ -418,10 +449,12 @@ function HomeContent() {
   const [leadName, setLeadName] = useState("");
   const [leadPhoneCode, setLeadPhoneCode] = useState("+7");
   const [leadPhone, setLeadPhone] = useState("");
+  const [objectTab, setObjectTab] = useState<"A" | "B">("A");
 
   const calculated = useCalculatedData(compareStrategy);
   const {
     chartDataWithDeposit,
+    chartDataWithDepositB,
     annuity,
     taxDeductions,
     roi,
@@ -436,11 +469,89 @@ function HomeContent() {
     compareScenarioLabel,
   } = calculated;
 
+  const chartDataForChart = useMemo(() => {
+    if (!comparisonMode || !chartDataWithDepositB?.length) return chartDataWithDeposit;
+    const byMonthB = new Map(chartDataWithDepositB.map((r) => [r.month, r.netEquity]));
+    return chartDataWithDeposit.map((row) => ({
+      ...row,
+      netEquityB: byMonthB.get(row.month) ?? row.netEquity,
+    }));
+  }, [comparisonMode, chartDataWithDeposit, chartDataWithDepositB]);
+
+  const roiBPercent = useMemo(() => {
+    if (!comparisonMode) return 0;
+    const downB = inputsB.price * (inputsB.downPercent / 100);
+    return FinancialEngine.roi({
+      price: inputsB.price,
+      downPayment: downB,
+      annualRentalYield: inputsB.rentalYieldPercent / 100,
+      expenseRatio: 0.2,
+    }).roiPercent;
+  }, [comparisonMode, inputsB.price, inputsB.downPercent, inputsB.rentalYieldPercent]);
+
+  const crossoverInsight = useMemo(() => {
+    const data = chartDataWithDeposit;
+    if (!data.length) return { crossoverMonth: null as number | null, crossoverYear: null as number | null, finalCapitalRub: 0 };
+    const crossoverRow = data.find((r) => r.month > 0 && r.netEquity >= r.depositAccumulation);
+    const crossoverMonth = crossoverRow?.month ?? null;
+    const crossoverYear = crossoverMonth != null ? Math.ceil(crossoverMonth / 12) : null;
+    const lastRow = data[data.length - 1];
+    const finalCapitalRub = lastRow?.netEquity ?? 0;
+    return { crossoverMonth, crossoverYear, finalCapitalRub };
+  }, [chartDataWithDeposit]);
+
   const [liveTime, setLiveTime] = useState(() => getCurrentTimestamp());
+  const [isGeneratingJpg, setIsGeneratingJpg] = useState(false);
+  const reportTemplateRef = useRef<HTMLDivElement>(null);
+
+  const expertConclusion = useMemo(
+    () => generateExpertConclusion({ chartDataWithDeposit }),
+    [chartDataWithDeposit]
+  );
+  const expertTextForReport = useMemo(
+    () => getExpertConclusionMessage(expertConclusion, effectiveLocale),
+    [expertConclusion, effectiveLocale]
+  );
+  const finalCapitalForReport =
+    chartDataWithDeposit.length > 0
+      ? (chartDataWithDeposit[chartDataWithDeposit.length - 1]?.netEquity ?? 0)
+      : 0;
+
   useEffect(() => {
     const id = setInterval(() => setLiveTime(getCurrentTimestamp()), 60_000);
     return () => clearInterval(id);
   }, []);
+
+  const handleDownloadReportJpg = useCallback(async () => {
+    if (typeof window === "undefined" || !reportTemplateRef.current) return;
+    if (isGeneratingJpg) return;
+    setIsGeneratingJpg(true);
+    try {
+      await new Promise((r) => setTimeout(r, 1500));
+      const canvas = await html2canvas(reportTemplateRef.current, {
+        useCORS: true,
+        allowTaint: true,
+        scale: 2,
+        backgroundColor: "#ffffff",
+        logging: true,
+        onclone: (clonedDoc, _clonedElement) => {
+          const el = clonedDoc.getElementById("report-container");
+          if (el) (el as HTMLElement).style.left = "0";
+        },
+      });
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+      const filename = "IFS_Report.jpg";
+      const a = document.createElement("a");
+      a.href = dataUrl;
+      a.download = filename;
+      a.click();
+    } catch (err) {
+      console.error("Export Error:", err);
+      alert("Ошибка: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setIsGeneratingJpg(false);
+    }
+  }, [isGeneratingJpg, effectiveLocale]);
 
   const handleDownloadPDF = useCallback(async () => {
     if (typeof window === "undefined") return;
@@ -508,20 +619,23 @@ function HomeContent() {
     async (name: string, phone: string, countryCode: string) => {
       const fullPhone = (countryCode.trim() + (phone || "").replace(/\D/g, "")).trim() || undefined;
       try {
+        const body: Record<string, unknown> = {
+          name: name.trim() || undefined,
+          phone: fullPhone,
+          strategy: strategyLabelForLead,
+          roi: roi.roiPercent,
+          companyName: effectiveBrand.companyName || "Digital Twin",
+          price,
+          currency: storeCurrency,
+          benefit: Math.max(0, verdictBenefit),
+          magicLink: typeof window !== "undefined" ? window.location.href : "",
+        };
+        if (leadPartnerId) body.partnerId = leadPartnerId;
+        if (leadPartnerChatId) body.chatId = leadPartnerChatId;
         const res = await fetch("/api/telegram/send", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: name.trim() || undefined,
-            phone: fullPhone,
-            strategy: strategyLabelForLead,
-            roi: roi.roiPercent,
-            companyName: brand.companyName || "Digital Twin",
-            price,
-            currency: storeCurrency,
-            benefit: Math.max(0, verdictBenefit),
-            magicLink: typeof window !== "undefined" ? window.location.href : "",
-          }),
+          body: JSON.stringify(body),
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
@@ -538,7 +652,7 @@ function HomeContent() {
       setLeadPhoneCode("+7");
       handleDownloadPDF();
     },
-    [strategyLabelForLead, roi.roiPercent, brand.companyName, price, storeCurrency, verdictBenefit, handleDownloadPDF]
+    [strategyLabelForLead, roi.roiPercent, effectiveBrand.companyName, price, storeCurrency, verdictBenefit, handleDownloadPDF, leadPartnerId, leadPartnerChatId]
   );
 
   const container = {
@@ -738,11 +852,46 @@ function HomeContent() {
                   </div>
                 </>
               )}
+              {!isExportView && (
+                <div className="pt-2 border-t border-white/10">
+                  <button
+                    type="button"
+                    onClick={() => setComparisonMode(!comparisonMode)}
+                    className={`w-full rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 ${
+                      comparisonMode
+                        ? "border-indigo-400/50 bg-indigo-500/20 text-indigo-300"
+                        : "border-white/10 bg-white/5 text-zinc-400 hover:border-white/20 hover:text-zinc-300"
+                    }`}
+                  >
+                    {t("compareWithAnotherJK")}
+                  </button>
+                </div>
+              )}
             </div>
+            {comparisonMode && !isExportView && (
+              <div className="mb-4 flex rounded-xl border border-white/10 bg-white/5 p-1">
+                {(["A", "B"] as const).map((tab) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    onClick={() => setObjectTab(tab)}
+                    className={`flex-1 rounded-lg py-2 text-sm font-medium transition-colors ${
+                      objectTab === tab
+                        ? "bg-white/15 text-white"
+                        : "text-zinc-500 hover:text-zinc-300"
+                    }`}
+                  >
+                    {tab === "A" ? t("objectA") : t("objectB")}
+                  </button>
+                ))}
+              </div>
+            )}
             <h2 className="mb-4 font-sans text-sm font-medium uppercase tracking-[-0.02em] text-zinc-400">
               {t("parameters")}
             </h2>
             <div className="space-y-6">
+              {(!comparisonMode || objectTab === "A") && (
+              <>
               <Slider
                 label={t("priceLabel")}
                 value={price}
@@ -794,6 +943,63 @@ function HomeContent() {
                 step={0.5}
                 format={(v) => `${v}%`}
               />
+              </>
+              )}
+              {comparisonMode && objectTab === "B" && (
+                <>
+                  <Slider
+                    label={t("priceLabel")}
+                    value={inputsB.price}
+                    onChange={(v) => setInputsB({ price: v })}
+                    min={1_000_000}
+                    max={100_000_000}
+                    step={500_000}
+                    format={(v) => {
+                      const d = valueToDisplay(v);
+                      const M = d >= 1_000_000;
+                      const num = M ? (d / 1_000_000).toFixed(1) : (d / 1_000).toFixed(0);
+                      const suffix = M ? (effectiveLocale === "en" ? "M" : "млн") : (effectiveLocale === "en" ? "K" : "тыс.");
+                      return `${num} ${suffix} ${symbol.trim()}`;
+                    }}
+                  />
+                  <Slider
+                    label={t("downPaymentLabel")}
+                    value={inputsB.downPercent}
+                    onChange={(v) => setInputsB({ downPercent: v })}
+                    min={0}
+                    max={90}
+                    step={5}
+                    format={(v) => `${v}%`}
+                  />
+                  <Slider
+                    label={t("rateLabel")}
+                    value={inputsB.ratePercent}
+                    onChange={(v) => setInputsB({ ratePercent: v })}
+                    min={5}
+                    max={30}
+                    step={0.5}
+                    format={(v) => `${v}%`}
+                  />
+                  <Slider
+                    label={t("termLabel")}
+                    value={inputsB.termYears}
+                    onChange={(v) => setInputsB({ termYears: v })}
+                    min={1}
+                    max={30}
+                    step={1}
+                    format={(v) => `${v} ${yearsWordEffective(v)}`}
+                  />
+                  <Slider
+                    label={t("rentalYieldLabel")}
+                    value={inputsB.rentalYieldPercent}
+                    onChange={(v) => setInputsB({ rentalYieldPercent: v })}
+                    min={2}
+                    max={15}
+                    step={0.5}
+                    format={(v) => `${v}%`}
+                  />
+                </>
+              )}
             </div>
           </motion.section>
 
@@ -966,18 +1172,67 @@ function HomeContent() {
               </motion.div>
             </div>
 
+            {!isExportView && (
+              <motion.div
+                variants={cardFloat}
+                className="flex flex-col gap-3 rounded-3xl border border-amber-500/20 bg-amber-500/5 px-4 py-4 backdrop-blur-xl sm:px-5"
+                aria-labelledby="risk-block-title"
+              >
+                <h3
+                  id="risk-block-title"
+                  className="font-sans text-sm font-medium uppercase tracking-[-0.02em] text-amber-400/90"
+                >
+                  {t("riskBlockTitle")}
+                </h3>
+                <div className="flex flex-wrap gap-2">
+                  {(
+                    [
+                      { key: "none" as const, label: t("riskNone"), desc: null },
+                      { key: "stagnation" as const, label: t("riskStagnation"), desc: t("riskStagnationDesc") },
+                      { key: "hyperinflation" as const, label: t("riskHyperinflation"), desc: t("riskHyperinflationDesc") },
+                    ] as const
+                  ).map(({ key, label, desc }) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setRiskScenario(key)}
+                      className={`inline-flex flex-col items-start rounded-xl border px-4 py-2.5 text-left text-sm transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/50 ${
+                        riskScenario === key
+                          ? "border-amber-400/50 bg-amber-500/20 text-white"
+                          : "border-white/10 bg-white/5 text-zinc-400 hover:border-white/20 hover:text-zinc-300"
+                      }`}
+                    >
+                      <span className="font-medium">{label}</span>
+                      {desc && <span className="mt-0.5 text-xs text-zinc-500">{desc}</span>}
+                    </button>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+
             <motion.div
               id="pdf-chart-wrap"
               variants={cardFloat}
               className={`${glassClass} min-h-[320px] p-6`}
             >
-              <h3 className="mb-4 font-sans text-sm font-medium uppercase tracking-[-0.02em] text-zinc-500">
-                Динамика роста чистого капитала
-              </h3>
+              <div className="mb-4 flex flex-wrap items-center gap-3">
+                <h3 className="font-sans text-sm font-medium uppercase tracking-[-0.02em] text-zinc-500">
+                  Динамика роста чистого капитала
+                </h3>
+                {!isExportView && (
+                  <span
+                    className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2.5 py-1 font-sans text-[11px] font-medium text-emerald-400/90"
+                    title={t("zeroPointBadge")}
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0" aria-hidden />
+                    {t("zeroPointValid")}
+                  </span>
+                )}
+              </div>
               <div className="h-[280px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart
-                    data={chartDataWithDeposit}
+                    data={chartDataForChart}
                     margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
                   >
                     <defs>
@@ -998,6 +1253,26 @@ function HomeContent() {
                           stopColor="#007AFF"
                           stopOpacity={0}
                         />
+                      </linearGradient>
+                      <linearGradient
+                        id="balanceGradientB"
+                        x1="0"
+                        y1="0"
+                        x2="0"
+                        y2="1"
+                      >
+                        <stop offset="0%" stopColor="#6366f1" stopOpacity={0.35} />
+                        <stop offset="100%" stopColor="#6366f1" stopOpacity={0} />
+                      </linearGradient>
+                      <linearGradient
+                        id="balanceGradientEmerald"
+                        x1="0"
+                        y1="0"
+                        x2="0"
+                        y2="1"
+                      >
+                        <stop offset="0%" stopColor="#10b981" stopOpacity={0.3} />
+                        <stop offset="100%" stopColor="#10b981" stopOpacity={0} />
                       </linearGradient>
                     </defs>
                     <CartesianGrid
@@ -1047,6 +1322,7 @@ function HomeContent() {
                       content={({ active, payload, label }) => {
                         if (!active || !payload?.length) return null;
                         const netEquityVal = Number(payload.find((e) => e.dataKey === "netEquity")?.value ?? 0);
+                        const netEquityBVal = payload.find((e) => e.dataKey === "netEquityB")?.value;
                         const depositVal = Number(payload.find((e) => e.dataKey === "depositAccumulation")?.value ?? 0);
                         const compareVal = payload.find((e) => e.dataKey === "netEquityCompare")?.value;
                         const rowPayload = payload[0]?.payload as { propertyValueGrowth?: number; savedRentIndexed?: number } | undefined;
@@ -1057,6 +1333,7 @@ function HomeContent() {
                         const chartUpTo120 = chartDataWithDeposit.filter((r) => r.month <= 120);
                         const crossoverRow = chartUpTo120.find((r) => r.netEquity >= r.depositAccumulation);
                         const crossoverMonth = crossoverRow?.month ?? null;
+                        const pastInflection = expertConclusion.inflectionMonth != null && currentMonth > expertConclusion.inflectionMonth;
                         // Преимущество = разница между синхронизированными линиями (netEquity − depositAccumulation). В 0-й месяц = 0 ₽ (единая точка старта).
                         const advantage = Math.round(netEquityVal - depositVal);
                         const monthsUntilCatchUp =
@@ -1078,8 +1355,16 @@ function HomeContent() {
                               {formatCurrency(netEquityVal)}
                             </p>
                             <p className="mt-0.5 font-sans text-[11px] text-white/50">
-                              Ваш капитал в объекте
+                              {comparisonMode ? t("jkAlpha") : "Ваш капитал в объекте"}
                             </p>
+                            {comparisonMode && netEquityBVal != null && (
+                              <>
+                                <p className="mt-1.5 font-sans text-sm font-semibold tabular-nums font-mono text-indigo-300 whitespace-nowrap">
+                                  {formatCurrency(Number(netEquityBVal))}
+                                </p>
+                                <p className="mt-0.5 font-sans text-[11px] text-white/50">{t("jkBeta")}</p>
+                              </>
+                            )}
                             <p className="mt-1.5 font-sans text-[11px] text-white/50">
                               {t("tooltipPriceGrowth")}{" "}
                               <span className="font-medium tabular-nums text-white/90">{formatCurrency(propertyValueGrowth)}</span>
@@ -1088,12 +1373,18 @@ function HomeContent() {
                               {t("tooltipRentAccumulated")}{" "}
                               <span className="font-medium tabular-nums text-white/90">{formatCurrency(savedRentIndexed)}</span>
                             </p>
-                            <p className="mt-2 font-sans text-sm font-semibold tabular-nums font-mono text-[#8884d8] whitespace-nowrap">
+                            <p className={`mt-2 font-sans text-sm font-semibold tabular-nums font-mono whitespace-nowrap ${comparisonMode ? "text-amber-400" : "text-[#8884d8]"}`}>
                               {formatCurrency(depositVal)}
                             </p>
                             <p className="mt-0.5 font-sans text-[11px] text-white/50">
-                              Банковский вклад
+                              {t("depositLabel")}
                             </p>
+                            {pastInflection && (
+                              <p className="mt-2 flex items-center gap-1.5 font-sans text-[11px] text-red-400">
+                                <span aria-hidden>⚠️</span>
+                                <span>{t("rentExceedsIncome")}</span>
+                              </p>
+                            )}
                             {compareWithin10Y ? (
                               <p className="mt-2 font-sans text-[11px] text-white/60">
                                 {Math.abs(advantage) > 100_000_000 ? (
@@ -1164,22 +1455,55 @@ function HomeContent() {
                     <Area
                       type="monotone"
                       dataKey="netEquity"
-                      stroke="#007AFF"
-                      strokeWidth={3}
-                      fill="url(#balanceGradient)"
-                      activeDot={{ r: 6, strokeWidth: 0, fill: "#007AFF" }}
-                      name="Недвижимость (Чистый актив)"
+                      stroke={comparisonMode ? "#10b981" : "#007AFF"}
+                      strokeWidth={comparisonMode ? 2.5 : 3}
+                      fill={comparisonMode ? "url(#balanceGradientEmerald)" : "url(#balanceGradient)"}
+                      activeDot={{ r: 6, strokeWidth: 0, fill: comparisonMode ? "#10b981" : "#007AFF" }}
+                      name={comparisonMode ? t("jkAlpha") : "Недвижимость (Чистый актив)"}
                     />
+                    {comparisonMode && chartDataWithDepositB && (
+                      <Area
+                        type="monotone"
+                        dataKey="netEquityB"
+                        stroke="#6366f1"
+                        strokeWidth={2.5}
+                        fill="url(#balanceGradientB)"
+                        activeDot={{ r: 5, strokeWidth: 0, fill: "#6366f1" }}
+                        name={t("jkBeta")}
+                      />
+                    )}
                     <Line
                       type="monotone"
                       dataKey="depositAccumulation"
-                      stroke="#8884d8"
+                      stroke={comparisonMode ? "#f59e0b" : "#8884d8"}
                       strokeDasharray="5 5"
                       strokeWidth={2}
-                      name="Банковский вклад"
+                      name={t("depositLabel")}
                       dot={false}
-                      activeDot={{ r: 4, fill: "#8884d8", strokeWidth: 0 }}
+                      activeDot={{ r: 4, fill: comparisonMode ? "#f59e0b" : "#8884d8", strokeWidth: 0 }}
                     />
+                    {expertConclusion.inflectionMonth != null && (() => {
+                      const inflectionRow = chartDataWithDeposit.find((r) => r.month === expertConclusion.inflectionMonth);
+                      const yVal = inflectionRow?.depositAccumulation ?? 0;
+                      return (
+                        <ReferenceDot
+                          x={expertConclusion.inflectionMonth}
+                          y={yVal}
+                          r={6}
+                          fill="#f59e0b"
+                          stroke="#fff"
+                          strokeWidth={2}
+                        >
+                          <Label
+                            value={t("inflectionPoint")}
+                            position="top"
+                            fill="#f59e0b"
+                            fontSize={11}
+                            fontWeight={600}
+                          />
+                        </ReferenceDot>
+                      );
+                    })()}
                     {compareStrategy && (
                       <Line
                         type="monotone"
@@ -1195,6 +1519,22 @@ function HomeContent() {
                         }}
                         name={t("alternative")}
                       />
+                    )}
+                    {crossoverInsight.crossoverMonth != null && (
+                      <ReferenceLine
+                        x={crossoverInsight.crossoverMonth}
+                        stroke="#10b981"
+                        strokeWidth={2}
+                        strokeDasharray="4 4"
+                      >
+                        <Label
+                          value={effectiveLocale === "ru" ? "Точка окупаемости актива" : "Asset payback point"}
+                          position="top"
+                          fill="#10b981"
+                          fontSize={11}
+                          fontWeight={600}
+                        />
+                      </ReferenceLine>
                     )}
                     {(() => {
                       const breakEvenPoint = chartDataWithDeposit.find(
@@ -1240,7 +1580,60 @@ function HomeContent() {
               rentMonthly={(price * (rentalYieldPercent / 100)) / 12}
             />
 
-            <motion.div variants={cardFloat} className="flex justify-center">
+            {!isExportView && (
+              <motion.div
+                variants={cardFloat}
+                className="relative flex min-w-0 flex-col gap-3 overflow-visible rounded-3xl border border-emerald-500/20 bg-emerald-500/5 px-4 pt-5 pb-5 backdrop-blur-xl sm:px-6"
+                style={{
+                  boxShadow: "inset 0 0 0 1px rgba(16,185,129,0.12), 0 0 40px -12px rgba(16,185,129,0.2)",
+                }}
+              >
+                <h3 className="mb-0 font-sans text-sm font-medium uppercase tracking-[-0.02em] leading-tight text-emerald-400/90">
+                  {t("expertSummaryTitle")}
+                </h3>
+                <p className="font-sans text-sm leading-relaxed text-zinc-300">
+                  {crossoverInsight.crossoverYear != null ? (
+                    t("expertSummaryWithCrossover")
+                      .replace("{X}", String(configFromStore.baseRates?.priceGrowthPercent ?? 0))
+                      .replace("{N}", String(crossoverInsight.crossoverYear))
+                      .replace("{M}", (crossoverInsight.finalCapitalRub / 1_000_000).toFixed(1))
+                  ) : (
+                    t("expertSummaryNoCrossover")
+                  )}
+                </p>
+              </motion.div>
+            )}
+
+            {!isExportView && (
+              <ExpertVerdict
+                chartData={chartDataWithDeposit}
+                termYears={termYears}
+                locale={effectiveLocale}
+              />
+            )}
+            {!isExportView && (
+              <ExpertInsightsVerdict
+                data={calculated}
+                formatCurrency={formatCurrency}
+                locale={effectiveLocale}
+                comparisonMode={comparisonMode}
+                chartDataB={chartDataWithDepositB}
+                roiBPercent={roiBPercent}
+              />
+            )}
+
+            <motion.div variants={cardFloat} className="flex flex-wrap justify-center gap-3">
+              <button
+                type="button"
+                onClick={handleDownloadReportJpg}
+                disabled={isGeneratingJpg}
+                className="inline-flex items-center gap-2 rounded-2xl border border-emerald-400/30 bg-emerald-500/20 px-6 py-3 font-sans text-sm font-medium text-emerald-300 transition-all hover:bg-emerald-500/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/50 disabled:opacity-60"
+              >
+                {isGeneratingJpg ? (
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                ) : null}
+                {isGeneratingJpg ? (effectiveLocale === "ru" ? "Генерация…" : "Generating…") : t("downloadReportJpgShort")}
+              </button>
               <button
                 type="button"
                 onClick={() => setPdfModalOpen(true)}
@@ -1394,6 +1787,35 @@ function HomeContent() {
         </motion.div>
       </div>
 
+      <ReportTemplate
+        ref={reportTemplateRef}
+        brand={{
+          logoUrl: effectiveBrand.logoUrl ?? "",
+          contactPhone: effectiveBrand.contactPhone ?? "",
+          companyName: effectiveBrand.companyName,
+        }}
+        chartData={chartDataForChart}
+        comparisonMode={comparisonMode}
+        objectA={{
+          price,
+          ratePercent,
+          finalCapital: finalCapitalForReport,
+          roiPercent: roi.roiPercent,
+          overpayment: annuity.totalInterest,
+        }}
+        objectB={
+          comparisonMode && chartDataWithDepositB?.length
+            ? {
+                price: inputsB.price,
+                ratePercent: inputsB.ratePercent,
+                finalCapital: chartDataWithDepositB[chartDataWithDepositB.length - 1]?.netEquity ?? 0,
+              }
+            : undefined
+        }
+        expertText={expertTextForReport}
+        formatCurrency={(v, opts) => formatCurrency(v, { ...opts, maximumFractionDigits: opts?.maximumFractionDigits ?? 0 })}
+      />
+
       {pdfModalOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
@@ -1412,6 +1834,9 @@ function HomeContent() {
             <h2 id="lead-modal-title" className="mb-4 font-sans text-lg font-semibold text-white">
               {t("leadModalTitleFull")}
             </h2>
+            {leadPartnerId ? (
+              <input type="hidden" name="partnerId" value={leadPartnerId} readOnly aria-hidden />
+            ) : null}
             <div className="space-y-3 mb-5">
               <input
                 type="text"
