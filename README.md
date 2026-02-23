@@ -1,8 +1,7 @@
-# IF# IFS Vision // High-Precision Capital Efficiency Terminal
+# IFS Vision // High-Precision Capital Efficiency Terminal
 > Part of the **Digital Twin Studio** ecosystem.
-**Author:** [mikolaysemyonov-code](https://github.com/
-mikolaysemyonov-code) · Digital Twin Studio  
-**v3.9.5** · [Live Demo](https://ifs-vision.vercel.app)
+**Author:** [mikolaysemyonov-code](https://github.com/mikolaysemyonov-code) · Digital Twin Studio  
+**v3.9.5** · [Live Demo](https://ifs-vision-final.vercel.app)
 ## The Philosophy: Digital Reincarnation
 IFS Vision противостоит **архитектурной энтропии** в личных финансах: 
 размытым сравнениям, неочевидным допущениям и «удобным» цифрам. Инструмент 
@@ -67,7 +66,9 @@ Motion · Recharts · Zustand · Vercel.
    `ADMIN_PASSWORD`; при необходимости — `BOT_TOKEN`, `CHAT_ID`.
 3. Запуск в режиме разработки и продакшен-сборка:
    ```bash
-   nS Vision // High-Precision Capital Efficiency Terminal 💎
+   npm run dev
+   npm run build && npm start
+   ```
 
 **Industrial Grade Financial Engine. Part of the Digital Twin Studio ecosystem.**  
 *v3.9.5 Diamond Release · Developed by [mikolaysemyonov-code](https://github.com/mikolaysemyonov-code)*
@@ -82,19 +83,19 @@ Motion · Recharts · Zustand · Vercel.
 ## 🎥 Visual Overview
 
 ### 1. Terminal Interface & Strategy Selection
-![Strategy Selection](.github/assets/screenshots/01-strategy-selection.png)
+![Strategy Selection](screenshots/01-strategy-selection.png)
 *Интерфейс выбора базовой стратегии и параметров ипотечного плеча.*
 
 ### 2. Zero-Point Sync & Inflation Inflection
-![Inflection Point](.github/assets/screenshots/02-inflection-point.png)
+![Inflection Point](screenshots/02-inflection-point.png)
 *Динамика чистого капитала. Визуализация точки «Инфляционного перегиба» на 8-м году.*
 
 ### 3. AI-Insights & Institutional Analytics
-![AI Analytics](.github/assets/screenshots/03-ai-insights-report.png)
+![AI Analytics](screenshots/03-ai-insights-report.png)
 *Глубокая декомпозиция: ROI, пики доходности вклада и экспертные вердикты системы.*
 
 ### 4. Investor Deck & B2B Report Generation
-![Investor Deck](.github/assets/screenshots/04-investor-deck-report.png)
+![Investor Deck](screenshots/04-investor-deck-report.png)
 *Генерация премиальных JPG-отчетов с White Label поддержкой и аналитикой.*
 
 ---
