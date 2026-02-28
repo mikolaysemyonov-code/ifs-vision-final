@@ -1,9 +1,7 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
-import { config } from "@/lib/config";
-import { getAdminSettings, getPartnerData } from "@/lib/admin-storage";
+import { Suspense } from "react";
+import { getAdminSettings } from "@/lib/admin-storage";
 import { motion } from "framer-motion";
 import { CheckCircle2, FileText, LayoutGrid, Loader2, Percent, Receipt, Sparkles, TrendingUp, Wallet } from "lucide-react";
 import {
@@ -22,95 +20,26 @@ import {
 } from "recharts";
 import { AnimatedNumber } from "@/components/AnimatedNumber";
 import { DigitalTwin } from "@/components/DigitalTwin";
-import {
-  useStore,
-  useDownPayment,
-  useLoanAmount,
-  useCurrencyDisplay,
-  useTranslations,
-} from "@/store/useStore";
-import { useCalculatedData } from "@/store/useCalculatedData";
-import { FinancialEngine } from "@/lib/engine";
 import { CurrencySwitcher } from "@/components/CurrencySwitcher";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
-import { t as tUtil, yearsWord as yearsWordUtil, timesWord as timesWordUtil, monthWord as monthWordUtil } from "@/lib/translations";
-import type { Currency } from "@/store/useStore";
-import { formatCurrency as formatCurrencyUtil, toDisplayValue } from "@/lib/formatCurrency";
-import { RENT_REINVEST_RATE } from "@/config/constants";
+import { t as tUtil, yearsWord as yearsWordUtil, timesWord as timesWordUtil } from "@/lib/translations";
 import type { ChartRowWithDeposit } from "@/lib/engine/financialEngine";
 import { ExpertVerdict } from "@/components/ExpertVerdict";
 import { ExpertVerdict as ExpertInsightsVerdict } from "@/components/analytics/ExpertVerdict";
 import { ReportTemplate } from "@/components/ReportTemplate";
-import { generateExpertConclusion, getExpertConclusionMessage } from "@/services/finance";
-import html2canvas from "html2canvas";
+import {
+  useWidgetLogic,
+  formatTimestampFromEpoch,
+  monthWordUtil,
+  type ScenarioKey,
+  type SmartInsightData,
+} from "./useWidgetLogic";
 
-/** Цвета стратегий для графика и UI (Золото, Синий, Изумруд). */
-const STRATEGY_COLORS: Record<"investor" | "family" | "entry", string> = {
+const STRATEGY_COLORS: Record<ScenarioKey, string> = {
   investor: "#EAB308",
   family: "#007AFF",
   entry: "#10B981",
 };
-
-function parseExportBrandFromUrl(searchParams: URLSearchParams): {
-  primaryColor: string;
-  companyName: string;
-  productName: string;
-  logoUrl: string;
-  contactPhone: string;
-} | null {
-  const accent = searchParams.get("accentColor");
-  const company = searchParams.get("companyName");
-  const logo = searchParams.get("logoUrl");
-  const contact = searchParams.get("contactPhone");
-  if (!accent && !company && !logo && !contact) return null;
-  try {
-    const primaryColor =
-      (accent && decodeURIComponent(accent).trim()) || "#007AFF";
-    const companyName =
-      (company && decodeURIComponent(company).trim()) || "";
-    const productName = companyName || "IFS Vision";
-    const logoUrl = (logo && decodeURIComponent(logo).trim()) || "";
-    const contactPhone = (contact && decodeURIComponent(contact).trim()) || "";
-    return { primaryColor, companyName, productName, logoUrl, contactPhone };
-  } catch {
-    return null;
-  }
-}
-
-/** Hex в rgba с заданной альфой для градиента. */
-function hexToRgba(hex: string, alpha: number): string {
-  const m = hex.replace(/^#/, "").match(/^(..)(..)(..)$/);
-  if (!m) return `rgba(59,130,246,${alpha})`;
-  const r = parseInt(m[1], 16);
-  const g = parseInt(m[2], 16);
-  const b = parseInt(m[3], 16);
-  return `rgba(${r},${g},${b},${alpha})`;
-}
-
-/** Текущее время в формате "21.02.2026, 22:32 (МСК)" в момент вызова. */
-function getCurrentTimestamp(): string {
-  return new Intl.DateTimeFormat("ru-RU", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "Europe/Moscow",
-    hour12: false,
-  }).format(new Date()) + " (МСК)";
-}
-
-function formatTimestampFromEpoch(epochMs: number): string {
-  return new Intl.DateTimeFormat("ru-RU", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "Europe/Moscow",
-    hour12: false,
-  }).format(new Date(epochMs)) + " (МСК)";
-}
 
 function Slider({
   label,
@@ -134,16 +63,11 @@ function Slider({
     <div className="space-y-2">
       <div className="flex justify-between items-baseline mb-4">
         <span className="text-sm font-medium text-zinc-400">{label}</span>
-        <span className="text-lg font-semibold tabular-nums text-white">
-          {format(value)}
-        </span>
+        <span className="text-lg font-semibold tabular-nums text-white">{format(value)}</span>
       </div>
       <div className="relative flex items-center">
         <div className="absolute h-[3px] w-full rounded-full bg-white/15" />
-        <div
-          className="absolute h-[3px] rounded-l-full bg-blue-600/50 transition-[width] duration-150"
-          style={{ width: `${pct}%` }}
-        />
+        <div className="absolute h-[3px] rounded-l-full bg-blue-600/50 transition-[width] duration-150" style={{ width: `${pct}%` }} />
         <input
           type="range"
           min={min}
@@ -158,91 +82,10 @@ function Slider({
   );
 }
 
-function SmartInsights({
-  chartData,
-  termYears,
-  locale,
-  initialTotalCapital = 0,
-  rentMonthly = 0,
-}: {
-  chartData: ChartRowWithDeposit[];
-  termYears: number;
-  locale: "ru" | "en";
-  initialTotalCapital?: number;
-  rentMonthly?: number;
-}) {
-  const insights = useMemo(() => {
-    const dataUpTo120 = chartData.filter((r) => r.month <= 120);
-    const horizonYears = Math.min(termYears, 10);
-    if (!dataUpTo120.length) {
-      return {
-        ratioTimes: 1.1,
-        horizonYears,
-        paybackMonths: null as number | null,
-        peakMonth: null as number | null,
-        showDepositDisclaimer: false,
-        showRentCapitalization: false,
-        rentCapitalizationPercent: 0,
-      };
-    }
-    const last = dataUpTo120[dataUpTo120.length - 1];
-    const lastDeposit = last.depositAccumulation;
-    let ratioTimes: number;
-    if (lastDeposit === 0 || !Number.isFinite(lastDeposit)) {
-      ratioTimes = 1.1;
-    } else {
-      const raw = last.netEquity / lastDeposit;
-      ratioTimes = !Number.isFinite(raw) || raw <= 0 ? 1.1 : raw;
-    }
-    const breakEvenRow = dataUpTo120.find((r) => r.isBreakEven);
-    const paybackMonths = breakEvenRow ? breakEvenRow.month : null;
-    let bestDiff = -Infinity;
-    let peakMonth: number | null = null;
-    const fromMonth24 = dataUpTo120.filter((r) => r.month >= 24);
-    for (const r of fromMonth24) {
-      const diff = r.netEquity - r.depositAccumulation;
-      if (diff > bestDiff) {
-        bestDiff = diff;
-        peakMonth = r.month;
-      }
-    }
-    const atEnd = chartData[chartData.length - 1];
-    const showDepositDisclaimer =
-      atEnd != null &&
-      atEnd.depositAccumulation > 0 &&
-      atEnd.depositAccumulation > 10 * atEnd.netEquity;
-    // Точка пересечения: если на 10 годах вклад всё ещё выше недвижимости — показываем подсказку про капитализацию аренды.
-    let showRentCapitalization = false;
-    let rentCapitalizationPercent = 0;
-    if (
-      initialTotalCapital > 0 &&
-      rentMonthly > 0 &&
-      last.depositAccumulation > last.netEquity
-    ) {
-      const r = RENT_REINVEST_RATE / 12;
-      const n = 120;
-      const fvRent = rentMonthly * ((Math.pow(1 + r, n) - 1) / r);
-      const savedRentTotal = rentMonthly * n;
-      const extra = fvRent - savedRentTotal;
-      rentCapitalizationPercent = (extra / initialTotalCapital / 10) * 100;
-      showRentCapitalization = rentCapitalizationPercent > 0 && Number.isFinite(rentCapitalizationPercent);
-    }
-    return {
-      ratioTimes,
-      horizonYears,
-      paybackMonths,
-      peakMonth,
-      showDepositDisclaimer,
-      showRentCapitalization,
-      rentCapitalizationPercent,
-    };
-  }, [chartData, termYears, initialTotalCapital, rentMonthly]);
-
+function SmartInsights({ locale, insights }: { locale: "ru" | "en"; insights: SmartInsightData }) {
   const xTimesStr = (insights.ratioTimes >= 1 ? insights.ratioTimes : 1.1).toFixed(1);
   const timesWord = timesWordUtil(parseFloat(xTimesStr), locale);
   const yearsWord = yearsWordUtil(insights.horizonYears, locale);
-  const showDepositDisclaimer = insights.showDepositDisclaimer ?? false;
-  const horizonYears = insights.horizonYears;
   const paybackText =
     insights.paybackMonths != null
       ? `${tUtil("insightPaybackReached", locale)} ${insights.paybackMonths} ${monthWordUtil(insights.paybackMonths, locale)}.`
@@ -251,7 +94,6 @@ function SmartInsights({
     insights.peakMonth != null
       ? `${tUtil("insightOptimalExit", locale)} ${insights.peakMonth} ${monthWordUtil(insights.peakMonth, locale)} (пик ROI)`
       : "—";
-
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
@@ -260,21 +102,18 @@ function SmartInsights({
       className="relative flex flex-col gap-4 overflow-hidden rounded-3xl border border-white/10 p-6 backdrop-blur-xl"
       style={{
         background: "linear-gradient(135deg, rgba(120,180,255,0.06) 0%, rgba(100,200,150,0.04) 100%)",
-        boxShadow:
-          "inset 0 0 0 1px rgba(255,255,255,0.06), 0 0 40px -12px rgba(120,180,255,0.2)",
+        boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.06), 0 0 40px -12px rgba(120,180,255,0.2)",
       }}
     >
       <div className="flex flex-shrink-0 items-center gap-2">
         <Sparkles className="mr-2 h-5 w-5 flex-shrink-0 text-amber-400/90" aria-hidden />
-        <h3 className="mb-0 font-sans text-sm font-medium uppercase tracking-[-0.02em] text-zinc-400 leading-tight">
-          AI-аналитика
-        </h3>
+        <h3 className="mb-0 font-sans text-sm font-medium uppercase tracking-[-0.02em] text-zinc-400 leading-tight">AI-аналитика</h3>
       </div>
       <ul className="flex flex-col gap-4 text-sm leading-relaxed text-zinc-300">
         <li className="min-h-0 leading-relaxed">
           <span className="text-zinc-500">{tUtil("insightComparisonLabel", locale)} </span>
           <span className="font-medium text-white">
-            {tUtil("insightComparisonSentence", locale)} {xTimesStr} {timesWord} {tUtil("insightComparisonSuffix", locale)} {horizonYears} {yearsWord}.
+            {tUtil("insightComparisonSentence", locale)} {xTimesStr} {timesWord} {tUtil("insightComparisonSuffix", locale)} {insights.horizonYears} {yearsWord}.
           </span>
         </li>
         <li className="min-h-0 leading-relaxed">
@@ -286,15 +125,11 @@ function SmartInsights({
           <span className="font-medium text-white">{peakText}</span>
         </li>
         <li className="min-h-0 leading-relaxed">
-          <span className="font-medium text-amber-400/90">
-            {tUtil("insightRatesForecast", locale)}
-          </span>
+          <span className="font-medium text-amber-400/90">{tUtil("insightRatesForecast", locale)}</span>
         </li>
-        {showDepositDisclaimer && (
+        {insights.showDepositDisclaimer && (
           <li className="min-h-0">
-            <span className="text-xs leading-relaxed text-amber-400/80">
-              {tUtil("insightDepositDisclaimer", locale)}
-            </span>
+            <span className="text-xs leading-relaxed text-amber-400/80">{tUtil("insightDepositDisclaimer", locale)}</span>
           </li>
         )}
         {insights.showRentCapitalization && (
@@ -312,390 +147,86 @@ function SmartInsights({
 }
 
 function HomeContent() {
-  const searchParams = useSearchParams();
-  const configFromStore = useStore((s) => s.config);
-  const loadConfigFromStorage = useStore((s) => s.loadConfigFromStorage);
-  const fetchRates = useStore((s) => s.fetchRates);
-  const { brand } = configFromStore;
-  const exportTs = searchParams.get("ts");
-  const showTsInReport = searchParams.get("showTs") !== "0";
-  const isExportView = searchParams.get("export") === "1";
-
-  const exportBrandFromUrl = isExportView
-    ? parseExportBrandFromUrl(searchParams)
-    : null;
-  const partnerIdFromUrl = searchParams.get("partner");
-  const partnerData =
-    !isExportView &&
-    typeof window !== "undefined" &&
-    partnerIdFromUrl
-      ? getPartnerData(partnerIdFromUrl)
-      : null;
-  const adminBranding = typeof window !== "undefined" ? getAdminSettings().branding : null;
-  const effectiveBrand = exportBrandFromUrl
-    ? {
-        companyName: exportBrandFromUrl.companyName || brand.companyName,
-        productName: exportBrandFromUrl.productName || brand.productName,
-        primaryColor: exportBrandFromUrl.primaryColor,
-        logoUrl: exportBrandFromUrl.logoUrl || brand.logoUrl,
-        contactPhone: exportBrandFromUrl.contactPhone ?? "",
-      }
-    : partnerData
-      ? {
-          companyName: partnerData.companyName,
-          productName: partnerData.companyName,
-          primaryColor: partnerData.primaryColor ?? brand.primaryColor,
-          logoUrl: partnerData.logoUrl || brand.logoUrl,
-          contactPhone: partnerData.contactPhone ?? "",
-        }
-      : {
-          ...brand,
-          contactPhone: adminBranding?.contactPhone?.trim() ?? "",
-        };
-  const leadPartnerId = partnerData ? partnerData.id : null;
-  const leadPartnerChatId =
-    partnerData?.telegramChatId?.trim() || null;
-
-  useEffect(() => {
-    loadConfigFromStorage();
-    const handler = () => loadConfigFromStorage();
-    window.addEventListener("ifsVisionAdminUpdated", handler);
-    return () => window.removeEventListener("ifsVisionAdminUpdated", handler);
-  }, [loadConfigFromStorage]);
-
-  useEffect(() => {
-    if (typeof window === "undefined" || isExportView) return;
-    if (getAdminSettings().ratesAutoUpdate) {
-      fetchRates();
-    }
-  }, [fetchRates, isExportView]);
-
-  const price = useStore((s) => s.price);
-  const downPercent = useStore((s) => s.downPercent);
-  const ratePercent = useStore((s) => s.ratePercent);
-  const termYears = useStore((s) => s.termYears);
-  const rentalYieldPercent = useStore((s) => s.rentalYieldPercent);
-  const setPrice = useStore((s) => s.setPrice);
-  const setDownPercent = useStore((s) => s.setDownPercent);
-  const setRatePercent = useStore((s) => s.setRatePercent);
-  const setTermYears = useStore((s) => s.setTermYears);
-  const setRentalYieldPercent = useStore((s) => s.setRentalYieldPercent);
-  const currentScenario = useStore((s) => s.currentScenario);
-  const setScenario = useStore((s) => s.setScenario);
-  const riskScenario = useStore((s) => s.riskScenario);
-  const setRiskScenario = useStore((s) => s.setRiskScenario);
-  const comparisonMode = useStore((s) => s.comparisonMode);
-  const setComparisonMode = useStore((s) => s.setComparisonMode);
-  const inputsB = useStore((s) => s.inputsB);
-  const setInputsB = useStore((s) => s.setInputsB);
-  const setCurrency = useStore((s) => s.setCurrency);
-
-  useEffect(() => {
-    if (isExportView || typeof window === "undefined") return;
-    const b = searchParams.get("b");
-    const c = searchParams.get("c");
-    const s = searchParams.get("s");
-    const strategyKeys: Array<"investor" | "family" | "entry"> = ["investor", "family", "entry"];
-    if (s !== null && s !== "") {
-      const idx = parseInt(s, 10);
-      if (Number.isFinite(idx) && idx >= 0 && idx <= 2) {
-        setScenario(strategyKeys[idx]);
-      }
-    }
-    if (b !== null && b !== "") {
-      const num = parseInt(b, 10);
-      if (Number.isFinite(num) && num >= 1_000_000 && num <= 100_000_000) {
-        setPrice(num);
-      }
-    }
-    if (c !== null && c !== "") {
-      const cur = c.toUpperCase();
-      if (cur === "RUB" || cur === "USD" || cur === "AED" || cur === "USDT") {
-        setCurrency(cur as Currency);
-      }
-    }
-  }, [searchParams, isExportView, setScenario, setPrice, setCurrency]);
-
-  const exportCompare = searchParams.get("compare");
-  const compareFromUrl =
-    isExportView && exportCompare && ["investor", "family", "entry"].includes(exportCompare)
-      ? (exportCompare as "investor" | "family" | "entry")
-      : null;
-  const [compareWithScenario, setCompareWithScenarioState] = useState<
-    "investor" | "family" | "entry" | null
-  >(null);
-  const compareStrategy = compareWithScenario ?? compareFromUrl;
-
-  const { formatCurrency: formatCurrencyStore, valueToDisplay: valueToDisplayStore, symbol: symbolStore, currency: storeCurrency } = useCurrencyDisplay();
-  const { locale: storeLocale } = useTranslations();
-  const currencyConfigs = useStore((s) => s.currencyConfigs);
-  const urlLocale = searchParams.get("locale");
-  const urlCurrency = searchParams.get("currency");
-  const effectiveLocale = isExportView && urlLocale === "en" ? "en" : storeLocale;
-  const effectiveCurrency: Currency = isExportView && (urlCurrency === "USD" || urlCurrency === "AED" || urlCurrency === "RUB" || urlCurrency === "USDT") ? urlCurrency : storeCurrency;
-  const formatCurrency = (v: number, opt?: { maximumFractionDigits?: number }) =>
-    isExportView && urlCurrency ? formatCurrencyUtil(v, effectiveCurrency, currencyConfigs[effectiveCurrency], opt) : formatCurrencyStore(v, opt);
-  const valueToDisplay = (v: number) =>
-    isExportView && urlCurrency ? toDisplayValue(v, currencyConfigs[effectiveCurrency].rateFromBase) : valueToDisplayStore(v);
-  const symbol = effectiveCurrency === "USD" ? currencyConfigs[effectiveCurrency].symbol : ` ${currencyConfigs[effectiveCurrency].symbol}`;
-  const t = (key: Parameters<typeof tUtil>[0]) => tUtil(key, effectiveLocale);
-  const yearsWordEffective = (n: number) => yearsWordUtil(n, effectiveLocale);
-  const STRATEGY_LABELS = { investor: t("strategyInvestor"), family: t("strategyFamily"), entry: t("strategyEntry") };
-
-  const downPayment = useDownPayment();
-  const loanAmount = useLoanAmount();
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [pdfModalOpen, setPdfModalOpen] = useState(false);
-  const [leadName, setLeadName] = useState("");
-  const [leadPhoneCode, setLeadPhoneCode] = useState("+7");
-  const [leadPhone, setLeadPhone] = useState("");
-  const [objectTab, setObjectTab] = useState<"A" | "B">("A");
-
-  const calculated = useCalculatedData(compareStrategy);
   const {
+    isExportView,
+    exportTs,
+    showTsInReport,
+    effectiveBrand,
+    configFromStore,
+    price,
+    downPercent,
+    ratePercent,
+    termYears,
+    rentalYieldPercent,
+    setPrice,
+    setDownPercent,
+    setRatePercent,
+    setTermYears,
+    setRentalYieldPercent,
+    currentScenario,
+    setScenario,
+    riskScenario,
+    setRiskScenario,
+    comparisonMode,
+    setComparisonMode,
+    inputsB,
+    setInputsB,
+    compareWithScenario,
+    setCompareWithScenarioState,
+    compareStrategy,
+    effectiveLocale,
+    formatCurrency,
+    valueToDisplay,
+    symbol,
+    t,
+    yearsWordEffective,
+    STRATEGY_LABELS,
+    isGenerating,
+    pdfModalOpen,
+    setPdfModalOpen,
+    leadName,
+    setLeadName,
+    leadPhoneCode,
+    setLeadPhoneCode,
+    leadPhone,
+    setLeadPhone,
+    objectTab,
+    setObjectTab,
+    calculated,
+    chartDataForChart,
     chartDataWithDeposit,
     chartDataWithDepositB,
+    roiBPercent,
+    crossoverInsight,
+    expertConclusion,
+    expertTextForReport,
+    finalCapitalForReport,
+    liveTime,
+    isGeneratingJpg,
+    reportTemplateRef,
+    leadPartnerId,
+    strategyLabelForLead,
+    smartInsights,
+    handleDownloadReportJpg,
+    handleDownloadPDF,
+    handlePdfWithLead,
+    container,
+    cardFloat,
+    glassClass,
+    exportAccentStyle,
+    gradientStyle,
+  } = useWidgetLogic();
+
+  const {
     annuity,
     taxDeductions,
     roi,
-    rentMonthly,
     totalRent,
     finalValue,
-    totalPayments,
-    taxRefunds,
     verdictBenefit,
-    verdictBenefitCompare,
     benefitDelta,
     compareScenarioLabel,
   } = calculated;
-
-  const chartDataForChart = useMemo(() => {
-    if (!comparisonMode || !chartDataWithDepositB?.length) return chartDataWithDeposit;
-    const byMonthB = new Map(chartDataWithDepositB.map((r) => [r.month, r.netEquity]));
-    return chartDataWithDeposit.map((row) => ({
-      ...row,
-      netEquityB: byMonthB.get(row.month) ?? row.netEquity,
-    }));
-  }, [comparisonMode, chartDataWithDeposit, chartDataWithDepositB]);
-
-  const roiBPercent = useMemo(() => {
-    if (!comparisonMode) return 0;
-    const downB = inputsB.price * (inputsB.downPercent / 100);
-    return FinancialEngine.roi({
-      price: inputsB.price,
-      downPayment: downB,
-      annualRentalYield: inputsB.rentalYieldPercent / 100,
-      expenseRatio: 0.2,
-    }).roiPercent;
-  }, [comparisonMode, inputsB.price, inputsB.downPercent, inputsB.rentalYieldPercent]);
-
-  const crossoverInsight = useMemo(() => {
-    const data = chartDataWithDeposit;
-    if (!data.length) return { crossoverMonth: null as number | null, crossoverYear: null as number | null, finalCapitalRub: 0 };
-    const crossoverRow = data.find((r) => r.month > 0 && r.netEquity >= r.depositAccumulation);
-    const crossoverMonth = crossoverRow?.month ?? null;
-    const crossoverYear = crossoverMonth != null ? Math.ceil(crossoverMonth / 12) : null;
-    const lastRow = data[data.length - 1];
-    const finalCapitalRub = lastRow?.netEquity ?? 0;
-    return { crossoverMonth, crossoverYear, finalCapitalRub };
-  }, [chartDataWithDeposit]);
-
-  const [liveTime, setLiveTime] = useState(() => getCurrentTimestamp());
-  const [isGeneratingJpg, setIsGeneratingJpg] = useState(false);
-  const reportTemplateRef = useRef<HTMLDivElement>(null);
-
-  const expertConclusion = useMemo(
-    () => generateExpertConclusion({ chartDataWithDeposit }),
-    [chartDataWithDeposit]
-  );
-  const expertTextForReport = useMemo(
-    () => getExpertConclusionMessage(expertConclusion, effectiveLocale),
-    [expertConclusion, effectiveLocale]
-  );
-  const finalCapitalForReport =
-    chartDataWithDeposit.length > 0
-      ? (chartDataWithDeposit[chartDataWithDeposit.length - 1]?.netEquity ?? 0)
-      : 0;
-
-  useEffect(() => {
-    const id = setInterval(() => setLiveTime(getCurrentTimestamp()), 60_000);
-    return () => clearInterval(id);
-  }, []);
-
-  const handleDownloadReportJpg = useCallback(async () => {
-    if (typeof window === "undefined" || !reportTemplateRef.current) return;
-    if (isGeneratingJpg) return;
-    setIsGeneratingJpg(true);
-    try {
-      await new Promise((r) => setTimeout(r, 1500));
-      const canvas = await html2canvas(reportTemplateRef.current, {
-        useCORS: true,
-        allowTaint: true,
-        scale: 2,
-        backgroundColor: "#ffffff",
-        logging: true,
-        onclone: (clonedDoc, _clonedElement) => {
-          const el = clonedDoc.getElementById("report-container");
-          if (el) (el as HTMLElement).style.left = "0";
-        },
-      });
-      const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
-      const filename = "IFS_Report.jpg";
-      const a = document.createElement("a");
-      a.href = dataUrl;
-      a.download = filename;
-      a.click();
-    } catch (err) {
-      console.error("Export Error:", err);
-      alert("Ошибка: " + (err instanceof Error ? err.message : String(err)));
-    } finally {
-      setIsGeneratingJpg(false);
-    }
-  }, [isGeneratingJpg, effectiveLocale]);
-
-  const handleDownloadPDF = useCallback(async () => {
-    if (typeof window === "undefined") return;
-    if (isGenerating) return;
-    setIsGenerating(true);
-    const root = document.documentElement;
-    root.classList.add("is-exporting");
-    try {
-      const pageUrl = new URL(window.location.href);
-      pageUrl.searchParams.set("export", "1");
-      pageUrl.searchParams.set("ts", String(Date.now()));
-      pageUrl.searchParams.set("showTs", configFromStore.security?.showTimestampInReport !== false ? "1" : "0");
-      if (compareWithScenario) {
-        pageUrl.searchParams.set("compare", compareWithScenario);
-      }
-      pageUrl.searchParams.set("locale", storeLocale);
-      pageUrl.searchParams.set("currency", storeCurrency);
-      pageUrl.searchParams.set("accentColor", encodeURIComponent(brand.primaryColor));
-      pageUrl.searchParams.set("companyName", encodeURIComponent(brand.companyName));
-      pageUrl.searchParams.set("logoUrl", encodeURIComponent(brand.logoUrl || ""));
-      const contactPhone = getAdminSettings().branding.contactPhone?.trim() ?? "";
-      if (contactPhone) pageUrl.searchParams.set("contactPhone", encodeURIComponent(contactPhone));
-      const agencyName = brand.companyName || "Report";
-      const res = await fetch("/api/pdf", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          url: pageUrl.toString(),
-          agencyName,
-          agencyLogoUrl: brand.logoUrl || undefined,
-          locale: storeLocale,
-        }),
-      });
-      if (!res.ok) {
-        const text = await res.text().catch(() => "Неизвестная ошибка");
-        let errorMessage: string;
-        try {
-          const json = JSON.parse(text) as { error?: string };
-          errorMessage = typeof json?.error === "string" ? json.error : text;
-        } catch {
-          errorMessage = text || "Ошибка генерации отчёта";
-        }
-        alert(errorMessage);
-        return;
-      }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "Investment_Report.jpg";
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch {
-      setIsGenerating(false);
-    } finally {
-      root.classList.remove("is-exporting");
-      setIsGenerating(false);
-    }
-  }, [isGenerating, configFromStore.security?.showTimestampInReport, compareWithScenario, storeLocale, storeCurrency, brand.primaryColor, brand.companyName, brand.logoUrl, brand.productName]);
-
-  const strategyLabelForLead =
-    currentScenario === "custom" ? t("currentScenario") : STRATEGY_LABELS[currentScenario];
-
-  const handlePdfWithLead = useCallback(
-    async (name: string, phone: string, countryCode: string) => {
-      const fullPhone = (countryCode.trim() + (phone || "").replace(/\D/g, "")).trim() || undefined;
-      try {
-        const body: Record<string, unknown> = {
-          name: name.trim() || undefined,
-          phone: fullPhone,
-          strategy: strategyLabelForLead,
-          roi: roi.roiPercent,
-          companyName: effectiveBrand.companyName || "Digital Twin",
-          price,
-          currency: storeCurrency,
-          benefit: Math.max(0, verdictBenefit),
-          magicLink: typeof window !== "undefined" ? window.location.href : "",
-        };
-        if (leadPartnerId) body.partnerId = leadPartnerId;
-        if (leadPartnerChatId) body.chatId = leadPartnerChatId;
-        const res = await fetch("/api/telegram/send", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          alert(typeof err?.error === "string" ? err.error : "Не удалось отправить заявку. Попробуйте позже.");
-          return;
-        }
-      } catch {
-        alert("Ошибка сети. Проверьте подключение и попробуйте снова.");
-        return;
-      }
-      setPdfModalOpen(false);
-      setLeadName("");
-      setLeadPhone("");
-      setLeadPhoneCode("+7");
-      handleDownloadPDF();
-    },
-    [strategyLabelForLead, roi.roiPercent, effectiveBrand.companyName, price, storeCurrency, verdictBenefit, handleDownloadPDF, leadPartnerId, leadPartnerChatId]
-  );
-
-  const container = {
-    hidden: { opacity: 0 },
-    show: {
-      opacity: 1,
-      transition: { staggerChildren: 0.06, delayChildren: 0.08 },
-    },
-  };
-
-  const cardFloat = {
-    hidden: { opacity: 0, y: 24 },
-    show: {
-      opacity: 1,
-      y: 0,
-      transition: {
-        duration: 0.45,
-        ease: [0.25, 0.46, 0.45, 0.94] as const,
-      },
-    },
-  };
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (window.location.search.includes("export=1")) {
-      document.documentElement.classList.add("is-exporting");
-    }
-  }, []);
-
-  const glassClass =
-    "rounded-3xl border border-white/10 bg-white/5 backdrop-blur-xl";
-
-  const exportAccentStyle =
-    isExportView && exportBrandFromUrl
-      ? ({ ["--accent-color" as string]: effectiveBrand.primaryColor } as React.CSSProperties)
-      : undefined;
-
-  const gradientStyle =
-    isExportView && exportBrandFromUrl
-      ? {
-          background: `radial-gradient(ellipse 80% 60% at 50% -20%, ${hexToRgba(effectiveBrand.primaryColor, 0.15)}, transparent)`,
-        }
-      : undefined;
 
   return (
     <div
@@ -1325,7 +856,7 @@ function HomeContent() {
                         const netEquityBVal = payload.find((e) => e.dataKey === "netEquityB")?.value;
                         const depositVal = Number(payload.find((e) => e.dataKey === "depositAccumulation")?.value ?? 0);
                         const compareVal = payload.find((e) => e.dataKey === "netEquityCompare")?.value;
-                        const rowPayload = payload[0]?.payload as { propertyValueGrowth?: number; savedRentIndexed?: number } | undefined;
+                        const rowPayload = payload[0]?.payload as ChartRowWithDeposit | undefined;
                         const propertyValueGrowth = Number(rowPayload?.propertyValueGrowth ?? 0);
                         const savedRentIndexed = Number(rowPayload?.savedRentIndexed ?? 0);
                         const currentMonth = typeof label === "number" ? label : 0;
@@ -1334,7 +865,6 @@ function HomeContent() {
                         const crossoverRow = chartUpTo120.find((r) => r.netEquity >= r.depositAccumulation);
                         const crossoverMonth = crossoverRow?.month ?? null;
                         const pastInflection = expertConclusion.inflectionMonth != null && currentMonth > expertConclusion.inflectionMonth;
-                        // Преимущество = разница между синхронизированными линиями (netEquity − depositAccumulation). В 0-й месяц = 0 ₽ (единая точка старта).
                         const advantage = Math.round(netEquityVal - depositVal);
                         const monthsUntilCatchUp =
                           compareWithin10Y && advantage < 0 && crossoverMonth != null && crossoverMonth > currentMonth
@@ -1537,9 +1067,7 @@ function HomeContent() {
                       </ReferenceLine>
                     )}
                     {(() => {
-                      const breakEvenPoint = chartDataWithDeposit.find(
-                        (r: { isBreakEven?: boolean }) => r.isBreakEven
-                      );
+                      const breakEvenPoint = chartDataWithDeposit.find((r: ChartRowWithDeposit) => r.isBreakEven);
                       return breakEvenPoint ? (
                         <ReferenceDot
                           x={breakEvenPoint.month}
@@ -1572,13 +1100,7 @@ function HomeContent() {
               </div>
             </motion.div>
 
-            <SmartInsights
-              chartData={chartDataWithDeposit}
-              termYears={termYears}
-              locale={effectiveLocale}
-              initialTotalCapital={price}
-              rentMonthly={(price * (rentalYieldPercent / 100)) / 12}
-            />
+            <SmartInsights locale={effectiveLocale} insights={smartInsights} />
 
             {!isExportView && (
               <motion.div
@@ -1719,12 +1241,12 @@ function HomeContent() {
                         <span className="font-semibold tabular-nums text-emerald-400">
                           <AnimatedNumber value={valueToDisplay(benefitDelta)} suffix={symbol} />
                         </span>{" "}
-                        {t("moreThan")} «{STRATEGY_LABELS[compareScenarioLabel as keyof typeof STRATEGY_LABELS]}».
+                        {t("moreThan")} «{compareScenarioLabel ? STRATEGY_LABELS[compareScenarioLabel] : ""}».
                       </>
                     ) : (
                       <>
                         {t("youSaveMore")}{" "}
-                        <span className="font-semibold text-amber-400">{STRATEGY_LABELS[compareScenarioLabel as keyof typeof STRATEGY_LABELS]}</span>
+                        <span className="font-semibold text-amber-400">{compareScenarioLabel ? STRATEGY_LABELS[compareScenarioLabel] : ""}</span>
                         {t("youSaveMoreSuffix")}{" "}
                         <span className="font-semibold tabular-nums text-amber-400">
                           <AnimatedNumber value={valueToDisplay(-benefitDelta)} suffix={symbol} />

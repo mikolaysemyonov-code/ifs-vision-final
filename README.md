@@ -1,110 +1,51 @@
-# IFS Vision // High-Precision Capital Efficiency Terminal
-> Part of the **Digital Twin Studio** ecosystem.
-**Author:** [mikolaysemyonov-code](https://github.com/mikolaysemyonov-code) · Digital Twin Studio  
-**v3.9.5** · [Live Demo](https://ifs-vision-final.vercel.app)
-## The Philosophy: Digital Reincarnation
-IFS Vision противостоит **архитектурной энтропии** в личных финансах: 
-размытым сравнениям, неочевидным допущениям и «удобным» цифрам. Инструмент 
-даёт **деконструкцию депозитной ловушки** — ситуации, когда высокие ставки 
-по вкладам создают иллюзию выгодности кэша и отталкивают от использования 
-кредитного плеча и роста актива. Единая точка входа капитала, 
-индексированная аренда и явная модель ставок ЦБ превращают выбор «банк vs 
-недвижимость» в прозрачное, воспроизводимое сравнение.
-## Engineering Excellence
+# IFS Vision
 
-### Financial Integrity Engine
-- **Чистая математика** — аннуитет, налоговые вычеты, ROI и сравнение с 
-арендой вынесены в отдельный слой чистых функций; все коэффициенты заданы 
-константами.
-- **Налогово-инфляционный фильтр** — коэффициент **0.85** к доходности 
-вклада после 36-го месяца (имитация налога на доход и инфляции) для 
-реалистичной картины на горизонте 20 лет.
-- **Динамические ставки ЦБ** — фаза высокой ставки (например 18%) в первые 
-36 месяцев, затем переход к целевой 8%; вклад и недвижимость сравниваются 
-в одной и той же макро-модели.
+High-precision capital efficiency terminal. Part of the Digital Twin Studio ecosystem.
 
-### Zero-Point Sync
+**v3.9.5** · [Live Demo](https://ifs-vision-final.vercel.app) · [mikolaysemyonov-code](https://github.com/mikolaysemyonov-code)
 
-Технология **честного сравнения капитала** из единой точки входа: и линия 
-«Недвижимость», и линия «Вклад» стартуют с одной и той же суммы (например 
-10 млн ₽). Остаток кэша после первоначального взноса участвует в общем 
-капитале сценария недвижимости и постепенно уменьшается по мере выплат по 
-ипотеке. Преимущество на графике и в тултипе — строго разница между этими 
-двумя синхронизированными линиями.
+---
 
-### Performance
+## Overview
 
-- **Next.js 15**, App Router, TypeScript.
-- **Zustand** с селекторами — минимизация ре-рендеров; тяжёлые расчёты в 
-едином хуке и сервисном слое.
-- **60 FPS UX** — обновление графика через `requestAnimationFrame`; 
-анимации (Framer Motion) не привязаны к пересчёту данных.
-## B2B & SaaS Capabilities
-| Capability | Description |
+Financial engine for property vs. deposit comparison with zero-float precision. All monetary calculations use integer math (base units: cents/kopeks). Single entry-point equity comparison (Zero-Point Sync), indexed rent, and explicit CB rate phases yield reproducible results over 10–20 year horizons.
+
+## Engineering Core
+
+**Integer Math** — Annuity, tax deductions, ROI, and rent comparison run in a pure-function layer. Amounts are computed in kopeks and rounded at each step; output is converted to display units. No floating-point in the calculation pipeline.
+
+**Logic Decoupling** — Business logic lives in `useWidgetLogic`. The main UI is layout-only: one hook call and JSX. State, derived data, and side effects are fully encapsulated in the hook.
+
+**Performance** — React 19 Compiler; Zustand with `useShallow` selectors to limit re-renders. Heavy work in a single hook and service layer. Chart updates and Framer Motion target 60–120 FPS; animations are decoupled from recalculation.
+
+**Zero-Point Sync** — Property and deposit series start from the same equity. Remaining cash after down payment is included in the property scenario and decreases with mortgage payments. Chart delta is the difference between the two series.
+
+**Inflation Inflection** — Proprietary logic detects the month where indexed rent outpaces deposit yield; optional warning in the UI.
+
+## Tech Stack
+
+- React 19
+- Next.js 15 (App Router, Turbopack)
+- TypeScript
+- Zustand (`useShallow`)
+- Tailwind CSS
+- Framer Motion, Recharts
+
+## Infrastructure
+
+- Vercel (Edge where applicable)
+- White Label: branding via URL params (`?partner=`, `?accentColor=`, `?companyName=`, etc.) and admin-stored config
+- Optional: Telegram lead capture (`BOT_TOKEN`, `CHAT_ID`), JPG/PDF report generation
+
+## Visual Overview
+
+| Screenshot | Description |
 |------------|-------------|
-| **White Label** | Динамический брендинг: логотип, название компании, 
-контактный телефон, цвет. Настраивается в админ-панели и через 
-URL-параметры для экспорт-режима. |
-| **Telegram Lead-Gen** | Захват контактов (имя, телефон) через модальное 
-окно с мгновенной отправкой лида в Telegram (опционально, при заданных 
-`BOT_TOKEN` и `CHAT_ID`). |
-| **PDF / JPG Report Engine** | Генерация визуальных инвест-отчётов (JPG) 
-через внешний Screenshot API; ключ задаётся в `SCREENSHOT_API_KEY`. |
-## Tech Stack & Setup
-**Stack:** Next.js 15 · React 19 · TypeScript · Tailwind CSS · Framer 
-Motion · Recharts · Zustand · Vercel.
+| [01-strategy-selection](.github/assets/screenshots/01-strategy-selection.png) | Strategy and mortgage parameters |
+| [02-inflection-point](.github/assets/screenshots/02-inflection-point.png) | Net equity; inflation inflection |
+| [03-ai-insights-report](.github/assets/screenshots/03-ai-insights-report.png) | ROI, deposit peaks, verdicts |
+| [04-investor-deck-report](.github/assets/screenshots/04-investor-deck-report.png) | JPG report with White Label |
 
-**Industrial Grade Financial Engine. Part of the Digital Twin Studio ecosystem.**  
-*v3.9.5 Diamond Release · Developed by [mikolaysemyonov-code](https://github.com/mikolaysemyonov-code)*
+## Licensing
 
----
-
-## 🎯 О проекте
-**IFS Vision** — это инвестиционный терминал высокой точности для деконструкции «депозитной ловушки». В отличие от обычных калькуляторов, система наглядно доказывает через математическое моделирование, почему стратегия накопления в кэше на горизонте 10+ лет ведет к потере капитала из-за инфляционных ножниц и индексации аренды.
-
----
-
-## 🎥 Visual Overview
-
-### 1. Terminal Interface & Strategy Selection
-![Strategy Selection](.github/assets/screenshots/01-strategy-selection.png)
-*Интерфейс выбора базовой стратегии и параметров ипотечного плеча.*
-
-### 2. Zero-Point Sync & Inflation Inflection
-![Inflection Point](.github/assets/screenshots/02-inflection-point.png)
-*Динамика чистого капитала. Визуализация точки «Инфляционного перегиба» на 8-м году.*
-
-### 3. AI-Insights & Institutional Analytics
-![AI Analytics](.github/assets/screenshots/03-ai-insights-report.png)
-*Глубокая декомпозиция: ROI, пики доходности вклада и экспертные вердикты системы.*
-
-### 4. Investor Deck & B2B Report Generation
-![Investor Deck](.github/assets/screenshots/04-investor-deck-report.png)
-*Генерация премиальных JPG-отчетов с White Label поддержкой и аналитикой.*
-
----
-
-## 🚀 Key Features
-
-*   **Zero-Point Sync Logic:** Авторская технология синхронизации стартового капитала. Сравнение идет из единой точки входа (Equity).
-*   **Inflation Inflection Point:** Автоматический поиск точки, где расходы на аренду превышают доходность вклада.
-*   **Safe Money Engine:** Целочисленные вычисления (в копейках) для 100% точности без погрешностей `floating point`.
-*   **B2B White Label:** Динамический брендинг через URL-параметры (`?partner=name`).
-*   **Investor Deck Generator:** Рендеринг инвест-меморандумов в JPG на стороне клиента.
-*   **Multi-Property Battle:** Одновременное сравнение двух объектов недвижимости против вклада.
-
----
-
-## 🛠 Tech Stack (Bleeding Edge)
-
-*   **Framework:** Next.js 16.1 (Turbopack)
-*   **Runtime:** React 19 + **React Compiler**
-*   **State:** Zustand + `useShallow` selectors (60 FPS UX)
-*   **Charts:** Recharts (High-performance analytical layers)
-*   **Styles:** Tailwind CSS (Bloomberg/Apple style UI)
-
----
-
-## License
-
-© 2026 Digital Twin Studio. All rights reserved. Commercial use, redistribution, or white-label integration requires a commercial license. Contact [@mikolaysemyonov-code](https://github.com/mikolaysemyonov-code) for inquiries.
+Commercial use only. Contact for integration.
